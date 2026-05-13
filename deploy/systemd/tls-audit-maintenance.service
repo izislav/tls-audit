@@ -1,0 +1,9 @@
+[Unit]
+Description=TLS Audit daily backup and cleanup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/tls-audit
+ExecStart=/bin/bash /opt/tls-audit/deploy/scripts/run-maintenance.sh

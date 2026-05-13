@@ -1,0 +1,13 @@
+[Unit]
+Description=TLS Audit Docker egress firewall
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/tls-audit
+ExecStart=/bin/bash /opt/tls-audit/deploy/scripts/apply-egress-firewall.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

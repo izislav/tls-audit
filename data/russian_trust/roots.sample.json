@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-05-05",
+  "source": "manual-placeholder",
+  "stale_after_days": 30,
+  "warning": "Это стартовый placeholder. Перед production нужно подключить официальный источник и процедуру обновления.",
+  "roots": [
+    {
+      "name": "НУЦ Минцифры РФ",
+      "type": "national_root",
+      "subject_contains": [
+        "Минцифры",
+        "Минкомсвязь",
+        "Russian Trusted Root"
+      ],
+      "fingerprints_sha256": [],
+      "notes": "Заполнить актуальными fingerprint из официального источника."
+    }
+  ],
+  "intermediates": []
+}
+

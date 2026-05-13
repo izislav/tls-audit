@@ -1,0 +1,102 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.api
+    restart: unless-stopped
+    init: true
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    environment:
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://tlsaudit.ru}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://tls_audit:tls_audit@postgres:5432/tls_audit}
+      MAX_SCAN_SECONDS: ${MAX_SCAN_SECONDS:-45}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-20}
+      CAPTCHA_AFTER_PER_MINUTE: ${CAPTCHA_AFTER_PER_MINUTE:-15}
+      TARGET_COOLDOWN_SECONDS: ${TARGET_COOLDOWN_SECONDS:-30}
+      ACTIVE_SCAN_TTL_SECONDS: ${ACTIVE_SCAN_TTL_SECONDS:-900}
+      MAX_QUEUE_DEPTH: ${MAX_QUEUE_DEPTH:-50}
+      REPORT_RETENTION_DAYS: ${REPORT_RETENTION_DAYS:-30}
+      ERROR_RETENTION_DAYS: ${ERROR_RETENTION_DAYS:-7}
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
+      YANDEX_VERIFICATION_FILE: ${YANDEX_VERIFICATION_FILE:-}
+      YANDEX_VERIFICATION_CONTENT: ${YANDEX_VERIFICATION_CONTENT:-}
+      GOOGLE_VERIFICATION_FILE: ${GOOGLE_VERIFICATION_FILE:-}
+      GOOGLE_VERIFICATION_CONTENT: ${GOOGLE_VERIFICATION_CONTENT:-}
+      CONTACT_EMAIL: ${CONTACT_EMAIL:-ya.izis@yandex.ru}
+    ports:
+      - "${API_BIND_HOST:-0.0.0.0}:8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.worker
+    restart: unless-stopped
+    init: true
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://tls_audit:tls_audit@postgres:5432/tls_audit}
+      MAX_SCAN_SECONDS: ${MAX_SCAN_SECONDS:-45}
+      TARGET_COOLDOWN_SECONDS: ${TARGET_COOLDOWN_SECONDS:-30}
+      ACTIVE_SCAN_TTL_SECONDS: ${ACTIVE_SCAN_TTL_SECONDS:-900}
+      TESTSSL_TIMEOUT_SECONDS: ${TESTSSL_TIMEOUT_SECONDS:-45}
+      TESTSSL_OPENSSL_TIMEOUT: ${TESTSSL_OPENSSL_TIMEOUT:-5}
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, redis; redis.from_url(os.environ['REDIS_URL']).ping()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tls_audit}
+      POSTGRES_USER: ${POSTGRES_USER:-tls_audit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tls_audit}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./deploy/postgres/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  redis-data:
+  postgres-data:

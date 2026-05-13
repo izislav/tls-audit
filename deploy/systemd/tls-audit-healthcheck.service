@@ -1,0 +1,10 @@
+[Unit]
+Description=TLS Audit healthcheck
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/tls-audit
+ExecStart=/bin/bash /opt/tls-audit/deploy/scripts/check-health.sh

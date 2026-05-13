@@ -1,0 +1,9 @@
+[Unit]
+Description=TLS Audit daily privacy-friendly stats
+Requires=docker.service
+After=docker.service tls-audit-maintenance.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/tls-audit
+ExecStart=/bin/bash /opt/tls-audit/deploy/scripts/report-stats.sh
