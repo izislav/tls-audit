@@ -8,6 +8,11 @@ from shared.tls_audit.adapter import run_full_scan
 from shared.tls_audit.archive import create_archive_store
 from shared.tls_audit.jobs import create_job_store
 from shared.tls_audit.logging import log_event
+from shared.tls_audit.monitoring_pipeline import (
+    record_monitoring_failure,
+    record_monitoring_report,
+)
+from shared.tls_audit.monitoring_store import create_monitoring_store
 from shared.tls_audit.traffic_control import TargetScanGuard
 from shared.tls_audit.validation import validate_worker_target
 
@@ -21,6 +26,7 @@ TARGET_COOLDOWN_SECONDS = int(os.getenv("TARGET_COOLDOWN_SECONDS", "30"))
 ACTIVE_SCAN_TTL_SECONDS = int(os.getenv("ACTIVE_SCAN_TTL_SECONDS", "900"))
 job_store = create_job_store(REDIS_URL)
 archive_store = create_archive_store(DATABASE_URL)
+monitoring_store = create_monitoring_store(DATABASE_URL)
 target_scan_guard = TargetScanGuard(
     redis_url=REDIS_URL,
     cooldown_seconds=TARGET_COOLDOWN_SECONDS,
@@ -34,6 +40,7 @@ def handle_job(job: Dict[str, object]) -> Dict[str, object]:
     job_id = str(job.get("id") or "")
     host = str(job["host"])
     port = int(job.get("port") or 443)
+    monitored_domain_id = optional_int(job.get("monitored_domain_id"))
     mark_running(job_id)
     log_event(logger, "scan_started", host=host, port=port, job_id=job_id)
     try:
@@ -55,6 +62,12 @@ def handle_job(job: Dict[str, object]) -> Dict[str, object]:
         )
     except Exception as exc:  # noqa: BLE001 - scanner errors are job state.
         mark_failed(job_id, str(exc))
+        record_monitoring_failure(
+            monitoring_store,
+            monitored_domain_id,
+            job_id,
+            str(exc),
+        )
         release_target(job_id, host, port, cooldown=True)
         log_event(
             logger,
@@ -65,7 +78,15 @@ def handle_job(job: Dict[str, object]) -> Dict[str, object]:
             error=str(exc),
         )
         return {"id": job_id, "status": "error", "error": str(exc)}
-    result = mark_done(job_id, report.to_dict())
+    report_dict = report.to_dict()
+    result = mark_done(job_id, report_dict)
+    if monitored_domain_id:
+        record_monitoring_report(
+            monitoring_store,
+            monitored_domain_id,
+            job_id,
+            report_dict,
+        )
     release_target(job_id, host, port, cooldown=True)
     log_event(logger, "scan_done", host=host, port=port, job_id=job_id)
     return result
@@ -158,6 +179,15 @@ def release_target(job_id: str, host: str, port: int, cooldown: bool) -> None:
             job_id=job_id,
             error=str(exc),
         )
+
+
+def optional_int(value: object) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def run_dev_file_worker() -> None:
