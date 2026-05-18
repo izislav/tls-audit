@@ -29,6 +29,7 @@ from shared.tls_audit.monitoring_store import (
     DEFAULT_SCAN_INTERVAL_SECONDS,
     MIN_SCAN_INTERVAL_SECONDS,
 )
+from shared.tls_audit.monitoring_scheduler import schedule_domain_scan
 
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -53,6 +54,12 @@ class MonitorDomainRequest(BaseModel):
     scan_interval_seconds: int = Field(default=DEFAULT_SCAN_INTERVAL_SECONDS, ge=1)
     enabled: bool = Field(default=True)
     notes: str = Field(default="", max_length=1000)
+
+
+class MonitorDomainPatchRequest(BaseModel):
+    enabled: bool | None = None
+    scan_interval_seconds: int | None = Field(default=None, ge=1)
+    notes: str | None = Field(default=None, max_length=1000)
 
 
 @app.get("/health")
@@ -457,6 +464,50 @@ def list_monitor_events(domain_id: int, limit: int = 50) -> Dict[str, object]:
         limit=max(1, min(limit, 500)),
     )
     return {"items": [event_to_dict(item) for item in events]}
+
+
+@app.patch("/api/monitor/domains/{domain_id}")
+def patch_monitor_domain(domain_id: int, payload: MonitorDomainPatchRequest) -> Dict[str, object]:
+    if payload.scan_interval_seconds is not None and payload.scan_interval_seconds < MIN_SCAN_INTERVAL_SECONDS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Интервал мониторинга слишком маленький. "
+                f"Минимум: {MIN_SCAN_INTERVAL_SECONDS} секунд."
+            ),
+        )
+    domain = monitoring_store.update_domain(
+        domain_id=domain_id,
+        enabled=payload.enabled,
+        scan_interval_seconds=payload.scan_interval_seconds,
+        notes=payload.notes.strip() if payload.notes is not None else None,
+    )
+    if not domain:
+        raise HTTPException(status_code=404, detail="Домен мониторинга не найден.")
+    return domain_to_dict(domain)
+
+
+@app.post("/api/monitor/domains/{domain_id}/scan-now")
+def monitor_scan_now(domain_id: int) -> Dict[str, object]:
+    domain = monitoring_store.get_domain(domain_id)
+    if not domain:
+        raise HTTPException(status_code=404, detail="Домен мониторинга не найден.")
+    scheduled = schedule_domain_scan(
+        domain=domain,
+        monitoring_store=monitoring_store,
+        job_store=job_store,
+        enqueue_scan_job=enqueue_scan_job,
+        target_scan_guard=target_scan_guard,
+    )
+    if isinstance(scheduled, dict):
+        return {"status": "skipped", **scheduled}
+    return {
+        "status": scheduled.status,
+        "domain_id": scheduled.domain_id,
+        "host": scheduled.host,
+        "port": scheduled.port,
+        "job_id": scheduled.job_id,
+    }
 
 
 def request_ip(request: Request) -> str:

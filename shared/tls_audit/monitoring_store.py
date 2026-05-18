@@ -45,6 +45,19 @@ class NullMonitoringStore:
 
     def list_domains(self, limit: int = 100) -> List[MonitoredDomain]:
         return []
+    
+    def get_domain(self, domain_id: int) -> Optional[MonitoredDomain]:
+        return None
+    
+    def update_domain(
+        self,
+        domain_id: int,
+        *,
+        enabled: Optional[bool] = None,
+        scan_interval_seconds: Optional[int] = None,
+        notes: Optional[str] = None,
+    ) -> Optional[MonitoredDomain]:
+        return None
 
     def mark_scan_scheduled(
         self,
@@ -137,6 +150,28 @@ class InMemoryMonitoringStore(NullMonitoringStore):
             key=lambda item: (item.next_scan_at or utcnow(), item.id),
         )
         return items[: max(1, limit)]
+    
+    def get_domain(self, domain_id: int) -> Optional[MonitoredDomain]:
+        return self.domains.get(int(domain_id))
+    
+    def update_domain(
+        self,
+        domain_id: int,
+        *,
+        enabled: Optional[bool] = None,
+        scan_interval_seconds: Optional[int] = None,
+        notes: Optional[str] = None,
+    ) -> Optional[MonitoredDomain]:
+        domain = self.domains.get(int(domain_id))
+        if not domain:
+            return None
+        if enabled is not None:
+            domain.enabled = bool(enabled)
+        if scan_interval_seconds is not None:
+            domain.scan_interval_seconds = normalize_scan_interval(scan_interval_seconds)
+        if notes is not None:
+            domain.notes = str(notes)
+        return domain
 
     def mark_scan_scheduled(
         self,
@@ -275,6 +310,57 @@ class PostgresMonitoringStore(NullMonitoringStore):
                 (max(1, int(limit)),),
             ).fetchall()
         return [domain_from_row(row) for row in rows]
+    
+    def get_domain(self, domain_id: int) -> Optional[MonitoredDomain]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, host, port, enabled, scan_interval_seconds,
+                       last_scan_at, next_scan_at, notes
+                FROM monitored_domains
+                WHERE id = %s
+                """,
+                (int(domain_id),),
+            ).fetchone()
+        return domain_from_row(row) if row else None
+    
+    def update_domain(
+        self,
+        domain_id: int,
+        *,
+        enabled: Optional[bool] = None,
+        scan_interval_seconds: Optional[int] = None,
+        notes: Optional[str] = None,
+    ) -> Optional[MonitoredDomain]:
+        domain = self.get_domain(domain_id)
+        if not domain:
+            return None
+        next_enabled = domain.enabled if enabled is None else bool(enabled)
+        next_interval = (
+            domain.scan_interval_seconds
+            if scan_interval_seconds is None
+            else normalize_scan_interval(scan_interval_seconds)
+        )
+        next_notes = domain.notes if notes is None else str(notes)
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                UPDATE monitored_domains
+                SET enabled = %(enabled)s,
+                    scan_interval_seconds = %(scan_interval_seconds)s,
+                    notes = %(notes)s
+                WHERE id = %(id)s
+                RETURNING id, host, port, enabled, scan_interval_seconds,
+                          last_scan_at, next_scan_at, notes
+                """,
+                {
+                    "id": int(domain_id),
+                    "enabled": next_enabled,
+                    "scan_interval_seconds": next_interval,
+                    "notes": next_notes,
+                },
+            ).fetchone()
+        return domain_from_row(row) if row else None
 
     def mark_scan_scheduled(
         self,

@@ -1315,6 +1315,14 @@ def render_frontend() -> str:
               <td>${escapeHtml(String(item.scan_interval_seconds || ''))}</td>
               <td>${escapeHtml(item.next_scan_at || '—')}</td>
               <td>${escapeHtml(lastEvent ? (lastEvent.title || lastEvent.event_type || '—') : '—')}</td>
+              <td>
+                <button type="button" data-monitor-toggle="${escapeHtml(String(item.id))}">
+                  ${item.enabled ? 'выкл' : 'вкл'}
+                </button>
+                <button type="button" data-monitor-scan="${escapeHtml(String(item.id))}" style="margin-left:6px">
+                  сканировать
+                </button>
+              </td>
             </tr>
           `;
         }));
@@ -1327,13 +1335,63 @@ def render_frontend() -> str:
                 <th>Интервал</th>
                 <th>След. скан</th>
                 <th>Последнее событие</th>
+                <th>Действия</th>
               </tr>
             </thead>
             <tbody>${rows.join('')}</tbody>
           </table>
         `;
+        monitorList.querySelectorAll('[data-monitor-toggle]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-monitor-toggle');
+            const row = items.find((x) => String(x.id) === String(id));
+            if (!row) return;
+            await toggleMonitoredDomain(row.id, !row.enabled);
+          });
+        });
+        monitorList.querySelectorAll('[data-monitor-scan]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-monitor-scan');
+            if (!id) return;
+            await runMonitoredScanNow(id);
+          });
+        });
       } catch (error) {
         monitorList.innerHTML = '<p class="muted">Не удалось загрузить список мониторинга.</p>';
+      }
+    }
+
+    async function toggleMonitoredDomain(domainId, enabled) {
+      monitorMsg.textContent = '';
+      try {
+        await fetchJson('/api/monitor/domains/' + encodeURIComponent(String(domainId)), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled })
+        });
+        monitorMsg.textContent = enabled ? 'Мониторинг включен.' : 'Мониторинг отключен.';
+        await loadMonitoredDomains();
+      } catch (error) {
+        monitorMsg.textContent = error.message || 'Не удалось обновить статус домена.';
+      }
+    }
+
+    async function runMonitoredScanNow(domainId) {
+      monitorMsg.textContent = '';
+      try {
+        const result = await fetchJson('/api/monitor/domains/' + encodeURIComponent(String(domainId)) + '/scan-now', {
+          method: 'POST'
+        });
+        if (result.status === 'queued' && result.job_id) {
+          monitorMsg.textContent = 'Проверка поставлена в очередь.';
+          history.pushState({}, '', '/scan?job=' + encodeURIComponent(result.job_id));
+          await loadJob(result.job_id);
+          return;
+        }
+        monitorMsg.textContent = result.detail || result.reason || 'Сканирование пропущено.';
+        await loadMonitoredDomains();
+      } catch (error) {
+        monitorMsg.textContent = error.message || 'Не удалось запустить проверку.';
       }
     }
 
