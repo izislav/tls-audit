@@ -937,6 +937,32 @@ def render_frontend() -> str:
     details { margin-top: 12px; }
     summary { cursor: pointer; font-weight: 750; color: var(--blue); }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    #monitoring-panel table th:last-child,
+    #monitoring-panel table td:last-child {
+      text-align: right;
+      width: 1%;
+      white-space: nowrap;
+    }
+    .monitor-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+    .monitor-btn {
+      min-height: 30px;
+      border-radius: 6px;
+      padding: 0 10px;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .monitor-btn.secondary {
+      background: #2f4f79;
+    }
+    .monitor-btn.secondary:hover {
+      background: #264468;
+    }
     @media print {
       @page { margin: 12mm; }
       body { background: #fff; color: #111; }
@@ -1316,12 +1342,14 @@ def render_frontend() -> str:
               <td>${escapeHtml(item.next_scan_at || '—')}</td>
               <td>${escapeHtml(lastEvent ? (lastEvent.title || lastEvent.event_type || '—') : '—')}</td>
               <td>
-                <button type="button" data-monitor-toggle="${escapeHtml(String(item.id))}">
+                <div class="monitor-actions">
+                <button type="button" class="monitor-btn" data-monitor-toggle="${escapeHtml(String(item.id))}">
                   ${item.enabled ? 'выкл' : 'вкл'}
                 </button>
-                <button type="button" data-monitor-scan="${escapeHtml(String(item.id))}" style="margin-left:6px">
+                <button type="button" class="monitor-btn secondary" data-monitor-scan="${escapeHtml(String(item.id))}">
                   сканировать
                 </button>
+                </div>
               </td>
             </tr>
           `;
