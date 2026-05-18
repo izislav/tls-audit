@@ -508,6 +508,8 @@ def monitor_scan_now(domain_id: int) -> Dict[str, object]:
         "port": scheduled.port,
         "job_id": scheduled.job_id,
     }
+
+
 def request_ip(request: Request) -> str:
     if settings.trust_proxy_headers:
         forwarded_for = request.headers.get("x-forwarded-for", "")
