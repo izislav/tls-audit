@@ -20,10 +20,15 @@ from .archive import archive_store
 from .denylist import denylist
 from .frontend import STATIC_PAGES, render_frontend, render_static_page
 from .jobs import job_store
+from .monitoring import monitoring_store
 from .queue import enqueue_scan_job, queue_depth
 from .rate_limit import rate_limiter
 from .settings import settings
 from .target_guard import target_scan_guard
+from shared.tls_audit.monitoring_store import (
+    DEFAULT_SCAN_INTERVAL_SECONDS,
+    MIN_SCAN_INTERVAL_SECONDS,
+)
 
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -40,6 +45,14 @@ app = FastAPI(
 class CheckRequest(BaseModel):
     host: str = Field(..., min_length=1, max_length=253)
     port: int = Field(default=443, ge=1, le=65535)
+
+
+class MonitorDomainRequest(BaseModel):
+    host: str = Field(..., min_length=1, max_length=253)
+    port: int = Field(default=443, ge=1, le=65535)
+    scan_interval_seconds: int = Field(default=DEFAULT_SCAN_INTERVAL_SECONDS, ge=1)
+    enabled: bool = Field(default=True)
+    notes: str = Field(default="", max_length=1000)
 
 
 @app.get("/health")
@@ -398,6 +411,54 @@ def compare_report(job_id: str) -> Dict[str, object]:
     }
 
 
+@app.get("/api/monitor/domains")
+def list_monitor_domains(limit: int = 100) -> Dict[str, object]:
+    domains = monitoring_store.list_domains(limit=max(1, min(limit, 500)))
+    return {"items": [domain_to_dict(item) for item in domains]}
+
+
+@app.post("/api/monitor/domains")
+def upsert_monitor_domain(payload: MonitorDomainRequest) -> Dict[str, object]:
+    if payload.scan_interval_seconds < MIN_SCAN_INTERVAL_SECONDS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Интервал мониторинга слишком маленький. "
+                f"Минимум: {MIN_SCAN_INTERVAL_SECONDS} секунд."
+            ),
+        )
+    try:
+        target = validate_target(payload.host, payload.port, resolve=False)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    domain = monitoring_store.upsert_domain(
+        host=target.host,
+        port=target.port,
+        scan_interval_seconds=payload.scan_interval_seconds,
+        enabled=payload.enabled,
+        notes=payload.notes.strip(),
+    )
+    return domain_to_dict(domain)
+
+
+@app.get("/api/monitor/domains/{domain_id}/snapshots")
+def list_monitor_snapshots(domain_id: int, limit: int = 20) -> Dict[str, object]:
+    snapshots = monitoring_store.list_snapshots(
+        monitored_domain_id=domain_id,
+        limit=max(1, min(limit, 200)),
+    )
+    return {"items": [snapshot_to_dict(item) for item in snapshots]}
+
+
+@app.get("/api/monitor/domains/{domain_id}/events")
+def list_monitor_events(domain_id: int, limit: int = 50) -> Dict[str, object]:
+    events = monitoring_store.list_events(
+        monitored_domain_id=domain_id,
+        limit=max(1, min(limit, 500)),
+    )
+    return {"items": [event_to_dict(item) for item in events]}
+
+
 def request_ip(request: Request) -> str:
     if settings.trust_proxy_headers:
         forwarded_for = request.headers.get("x-forwarded-for", "")
@@ -422,3 +483,49 @@ def admission_error(
     if decision.job_id:
         detail["job_id"] = decision.job_id
     return HTTPException(status_code=status_code, detail=detail, headers=headers)
+
+
+def domain_to_dict(domain) -> Dict[str, object]:
+    return {
+        "id": domain.id,
+        "host": domain.host,
+        "port": domain.port,
+        "enabled": domain.enabled,
+        "scan_interval_seconds": domain.scan_interval_seconds,
+        "last_scan_at": iso_or_none(domain.last_scan_at),
+        "next_scan_at": iso_or_none(domain.next_scan_at),
+        "notes": domain.notes,
+    }
+
+
+def snapshot_to_dict(snapshot) -> Dict[str, object]:
+    return {
+        "id": snapshot.id,
+        "monitored_domain_id": snapshot.monitored_domain_id,
+        "scan_id": snapshot.scan_id,
+        "grade": snapshot.grade,
+        "score": snapshot.score,
+        "certificate_not_after": snapshot.certificate_not_after,
+        "certificate_expires_in_days": snapshot.certificate_expires_in_days,
+        "supported_protocols": snapshot.supported_protocols,
+        "hsts": snapshot.hsts,
+        "findings": [finding.to_dict() for finding in snapshot.findings],
+        "created_at": iso_or_none(snapshot.created_at),
+    }
+
+
+def event_to_dict(event: Dict[str, object]) -> Dict[str, object]:
+    return {
+        **event,
+        "created_at": iso_or_none(event.get("created_at")),
+    }
+
+
+def iso_or_none(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)

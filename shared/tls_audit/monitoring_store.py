@@ -43,6 +43,9 @@ class NullMonitoringStore:
     def due_domains(self, limit: int = 50, now: Optional[datetime] = None) -> List[MonitoredDomain]:
         return []
 
+    def list_domains(self, limit: int = 100) -> List[MonitoredDomain]:
+        return []
+
     def mark_scan_scheduled(
         self,
         domain_id: int,
@@ -69,6 +72,12 @@ class NullMonitoringStore:
         events: List[MonitoringEvent],
     ) -> None:
         return
+
+    def list_snapshots(self, monitored_domain_id: int, limit: int = 20) -> List[MonitoringSnapshot]:
+        return []
+
+    def list_events(self, monitored_domain_id: int, limit: int = 50) -> List[Dict[str, object]]:
+        return []
 
 
 class InMemoryMonitoringStore(NullMonitoringStore):
@@ -121,6 +130,13 @@ class InMemoryMonitoringStore(NullMonitoringStore):
             if domain.enabled and (domain.next_scan_at is None or domain.next_scan_at <= now)
         ]
         return sorted(due, key=lambda item: item.next_scan_at or now)[: max(1, limit)]
+
+    def list_domains(self, limit: int = 100) -> List[MonitoredDomain]:
+        items = sorted(
+            self.domains.values(),
+            key=lambda item: (item.next_scan_at or utcnow(), item.id),
+        )
+        return items[: max(1, limit)]
 
     def mark_scan_scheduled(
         self,
@@ -176,6 +192,20 @@ class InMemoryMonitoringStore(NullMonitoringStore):
                 }
             )
 
+    def list_snapshots(self, monitored_domain_id: int, limit: int = 20) -> List[MonitoringSnapshot]:
+        items = [
+            snapshot
+            for snapshot in self.snapshots.values()
+            if snapshot.monitored_domain_id == monitored_domain_id
+        ]
+        return sorted(items, key=lambda item: item.id or 0, reverse=True)[: max(1, limit)]
+
+    def list_events(self, monitored_domain_id: int, limit: int = 50) -> List[Dict[str, object]]:
+        items = [
+            event for event in self.events if event["monitored_domain_id"] == monitored_domain_id
+        ]
+        return list(reversed(items))[: max(1, limit)]
+
 
 class PostgresMonitoringStore(NullMonitoringStore):
     enabled = True
@@ -229,6 +259,20 @@ class PostgresMonitoringStore(NullMonitoringStore):
                 LIMIT %s
                 """,
                 (now, max(1, int(limit))),
+            ).fetchall()
+        return [domain_from_row(row) for row in rows]
+
+    def list_domains(self, limit: int = 100) -> List[MonitoredDomain]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, host, port, enabled, scan_interval_seconds,
+                       last_scan_at, next_scan_at, notes
+                FROM monitored_domains
+                ORDER BY enabled DESC, next_scan_at ASC, id ASC
+                LIMIT %s
+                """,
+                (max(1, int(limit)),),
             ).fetchall()
         return [domain_from_row(row) for row in rows]
 
@@ -316,6 +360,22 @@ class PostgresMonitoringStore(NullMonitoringStore):
             ).fetchone()
         return snapshot_from_row(row) if row else None
 
+    def list_snapshots(self, monitored_domain_id: int, limit: int = 20) -> List[MonitoringSnapshot]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, monitored_domain_id, scan_id, grade, score,
+                       certificate_not_after, certificate_expires_in_days,
+                       supported_protocols, hsts, findings, created_at
+                FROM monitoring_snapshots
+                WHERE monitored_domain_id = %s
+                ORDER BY id DESC
+                LIMIT %s
+                """,
+                (int(monitored_domain_id), max(1, int(limit))),
+            ).fetchall()
+        return [snapshot_from_row(row) for row in rows]
+
     def save_events(
         self,
         monitored_domain_id: int,
@@ -350,6 +410,21 @@ class PostgresMonitoringStore(NullMonitoringStore):
                         "payload": Jsonb(event.payload),
                     },
                 )
+
+    def list_events(self, monitored_domain_id: int, limit: int = 50) -> List[Dict[str, object]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, monitored_domain_id, snapshot_id, scan_id, event_type,
+                       severity, title, detail, payload, created_at
+                FROM monitoring_events
+                WHERE monitored_domain_id = %s
+                ORDER BY id DESC
+                LIMIT %s
+                """,
+                (int(monitored_domain_id), max(1, int(limit))),
+            ).fetchall()
+        return [event_from_row(row) for row in rows]
 
     def connect(self):
         import psycopg
@@ -407,6 +482,21 @@ def snapshot_from_row(row: Dict[str, object]) -> MonitoringSnapshot:
         ],
         created_at=row.get("created_at"),
     )
+
+
+def event_from_row(row: Dict[str, object]) -> Dict[str, object]:
+    return {
+        "id": int(row["id"]),
+        "monitored_domain_id": int(row["monitored_domain_id"]),
+        "snapshot_id": row.get("snapshot_id"),
+        "scan_id": row.get("scan_id"),
+        "event_type": str(row["event_type"]),
+        "severity": str(row["severity"]),
+        "title": str(row["title"]),
+        "detail": str(row.get("detail") or ""),
+        "payload": dict(row.get("payload") or {}),
+        "created_at": row.get("created_at"),
+    }
 
 
 def utcnow() -> datetime:
