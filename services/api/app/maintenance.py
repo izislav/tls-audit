@@ -61,6 +61,7 @@ def schedule_monitored_domains(limit: int) -> dict[str, object]:
         "queued": [item.__dict__ for item in result.queued],
         "skipped": result.skipped,
     }
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="TLS Audit maintenance commands.")
     subparsers = parser.add_subparsers(dest="command", required=True)

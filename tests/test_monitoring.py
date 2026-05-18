@@ -1,6 +1,7 @@
 import unittest
 
 from shared.tls_audit.monitoring import (
+    MonitoringEvent,
     MonitoringSnapshot,
     diff_snapshots,
     events_from_diff,
@@ -208,13 +209,19 @@ class MonitoringStoreTests(unittest.TestCase):
                 score=95,
             )
         )
-        events = events_from_diff(diff_snapshots(snapshot, None))
+        events = [
+            MonitoringEvent(
+                event_type="grade_improved",
+                severity="info",
+                title="Оценка улучшилась",
+            )
+        ]
 
         store.save_events(domain.id, snapshot.id, snapshot.scan_id, events)
 
         self.assertEqual(store.latest_snapshot(domain.id).scan_id, "scan-1")
         self.assertEqual(snapshot.id, 1)
-        self.assertEqual(store.events, [])
+        self.assertEqual(store.events[0]["event_type"], "grade_improved")
 
 
 class MonitoringPipelineTests(unittest.TestCase):
