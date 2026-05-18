@@ -14,6 +14,12 @@ class MonitoringSchedulerLoopTests(unittest.TestCase):
         self.assertEqual(positive_int("0", 60), 60)
         self.assertEqual(positive_int("15", 60), 15)
 
+    def test_default_poll_interval_is_five_minutes(self) -> None:
+        from services.scheduler import scheduler
+
+        with patch.object(scheduler.os, "getenv", return_value=None):
+            self.assertEqual(scheduler.get_poll_seconds(), 300)
+
     def test_run_once_schedules_due_domains_and_logs_tick(self) -> None:
         from services.scheduler import scheduler
 

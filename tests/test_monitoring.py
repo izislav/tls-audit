@@ -12,7 +12,11 @@ from shared.tls_audit.monitoring_pipeline import (
     record_monitoring_failure,
     record_monitoring_report,
 )
-from shared.tls_audit.monitoring_store import InMemoryMonitoringStore, create_monitoring_store
+from shared.tls_audit.monitoring_store import (
+    InMemoryMonitoringStore,
+    MIN_SCAN_INTERVAL_SECONDS,
+    create_monitoring_store,
+)
 
 
 class MonitoringSnapshotTests(unittest.TestCase):
@@ -185,6 +189,7 @@ class MonitoringStoreTests(unittest.TestCase):
         domain = store.upsert_domain("example.ru", scan_interval_seconds=60)
 
         self.assertEqual(store.due_domains()[0].host, "example.ru")
+        self.assertEqual(domain.scan_interval_seconds, MIN_SCAN_INTERVAL_SECONDS)
 
         store.mark_scan_scheduled(domain.id, "scan-1")
 

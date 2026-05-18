@@ -14,7 +14,7 @@ logger = logging.getLogger("tls_audit.scheduler")
 
 
 def get_poll_seconds() -> int:
-    return positive_int(os.getenv("SCHEDULER_POLL_SECONDS"), default=60)
+    return positive_int(os.getenv("SCHEDULER_POLL_SECONDS"), default=300)
 
 
 def get_batch_size() -> int:

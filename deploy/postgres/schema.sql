@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS monitored_domains (
     host TEXT NOT NULL,
     port INTEGER NOT NULL DEFAULT 443,
     enabled BOOLEAN NOT NULL DEFAULT true,
-    scan_interval_seconds INTEGER NOT NULL DEFAULT 86400,
+    scan_interval_seconds INTEGER NOT NULL DEFAULT 86400 CHECK (scan_interval_seconds >= 86400),
     last_scan_at TIMESTAMPTZ,
     next_scan_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     notes TEXT NOT NULL DEFAULT '',

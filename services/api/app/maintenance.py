@@ -8,6 +8,7 @@ from .queue import enqueue_scan_job
 from .settings import settings
 from .target_guard import target_scan_guard
 from shared.tls_audit.monitoring_scheduler import schedule_due_scans
+from shared.tls_audit.monitoring_store import DEFAULT_SCAN_INTERVAL_SECONDS, MIN_SCAN_INTERVAL_SECONDS
 
 
 def cleanup_reports(retention_days: int, error_retention_days: int) -> dict[str, int]:
@@ -30,6 +31,10 @@ def add_monitored_domain(
     enabled: bool,
     notes: str,
 ) -> dict[str, object]:
+    if interval_seconds < MIN_SCAN_INTERVAL_SECONDS:
+        raise ValueError(
+            f"Минимальный интервал мониторинга: {MIN_SCAN_INTERVAL_SECONDS} секунд."
+        )
     domain = monitoring_store.upsert_domain(
         host=host,
         port=port,
@@ -85,7 +90,7 @@ def main() -> None:
     monitor_add = subparsers.add_parser("monitor-add", help="Add or update monitored domain.")
     monitor_add.add_argument("host", help="Public hostname to monitor.")
     monitor_add.add_argument("--port", type=int, default=443)
-    monitor_add.add_argument("--interval-seconds", type=int, default=86400)
+    monitor_add.add_argument("--interval-seconds", type=int, default=DEFAULT_SCAN_INTERVAL_SECONDS)
     monitor_add.add_argument("--disabled", action="store_true")
     monitor_add.add_argument("--notes", default="")
 
