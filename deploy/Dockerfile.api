@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -r /app/requirements/api.txt
 COPY data /app/data
 COPY shared /app/shared
 COPY services/api /app/services/api
+COPY services/scheduler /app/services/scheduler
 COPY tls_guard /app/tls_guard
 
 CMD ["uvicorn", "services.api.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

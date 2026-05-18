@@ -69,6 +69,30 @@ services:
       retries: 3
       start_period: 20s
 
+  scheduler:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.api
+    command: ["python", "-m", "services.scheduler.scheduler"]
+    restart: unless-stopped
+    init: true
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://tls_audit:tls_audit@postgres:5432/tls_audit}
+      SCAN_QUEUE_NAME: ${SCAN_QUEUE_NAME:-tls-audit:scan-jobs}
+      TARGET_COOLDOWN_SECONDS: ${TARGET_COOLDOWN_SECONDS:-30}
+      ACTIVE_SCAN_TTL_SECONDS: ${ACTIVE_SCAN_TTL_SECONDS:-900}
+      SCHEDULER_POLL_SECONDS: ${SCHEDULER_POLL_SECONDS:-60}
+      SCHEDULER_BATCH_SIZE: ${SCHEDULER_BATCH_SIZE:-50}
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
   redis:
     image: redis:7-alpine
     restart: unless-stopped
