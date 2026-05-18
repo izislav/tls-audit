@@ -1024,6 +1024,29 @@ def render_frontend() -> str:
 
 	    <div id="error" class="error hidden" data-testid="error"></div>
 	    <div id="empty" class="empty">Готов к первой проверке.</div>
+      <section id="monitoring-panel">
+        <h2>Мониторинг доменов</h2>
+        <form id="monitor-form">
+          <div class="domain-field">
+            <label for="monitor-host">Домен</label>
+            <input id="monitor-host" name="monitor-host" placeholder="example.ru" autocomplete="off">
+          </div>
+          <div>
+            <label for="monitor-port">Порт</label>
+            <input id="monitor-port" name="monitor-port" inputmode="numeric" value="443">
+          </div>
+          <div>
+            <label for="monitor-interval">Интервал (сек.)</label>
+            <input id="monitor-interval" name="monitor-interval" inputmode="numeric" value="86400">
+          </div>
+          <div>
+            <label>&nbsp;</label>
+            <button id="monitor-submit" type="submit">Добавить</button>
+          </div>
+        </form>
+        <div id="monitor-msg" class="muted" style="margin-top:10px"></div>
+        <div id="monitor-list" style="margin-top:12px"></div>
+      </section>
 		    <div id="report" class="hidden" data-testid="report"></div>
 		    <div id="about-page" class="about-page" data-testid="about-page">
 		      <div class="about-intro">
@@ -1089,6 +1112,13 @@ def render_frontend() -> str:
 	    const errorBox = document.getElementById('error');
 	    const empty = document.getElementById('empty');
 	    const reportBox = document.getElementById('report');
+    const monitorForm = document.getElementById('monitor-form');
+    const monitorHostInput = document.getElementById('monitor-host');
+    const monitorPortInput = document.getElementById('monitor-port');
+    const monitorIntervalInput = document.getElementById('monitor-interval');
+    const monitorSubmitButton = document.getElementById('monitor-submit');
+    const monitorMsg = document.getElementById('monitor-msg');
+    const monitorList = document.getElementById('monitor-list');
 
     const severityOrder = {critical: 0, high: 1, medium: 2, low: 3, info: 4};
     const severityLabels = {
@@ -1102,6 +1132,10 @@ def render_frontend() -> str:
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       await startScan(hostInput.value, portInput.value);
+    });
+    monitorForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      await saveMonitoredDomain();
     });
 
 	    window.addEventListener('popstate', () => {
@@ -1128,6 +1162,7 @@ def render_frontend() -> str:
 	        hostInput.value = target;
 	      }
 	      showHomePage();
+        await loadMonitoredDomains();
 	    }
 
 	    async function startScan(host, port) {
@@ -1201,8 +1236,8 @@ def render_frontend() -> str:
       throw new Error('Проверка длится слишком долго. Попробуйте повторить позже.');
     }
 
-    async function fetchJson(url) {
-      const response = await fetch(url);
+    async function fetchJson(url, options) {
+      const response = await fetch(url, options);
       const data = await response.json();
       if (!response.ok) {
         throw new Error(apiErrorMessage(data, 'Ошибка API'));
@@ -1235,6 +1270,72 @@ def render_frontend() -> str:
 		      empty.classList.remove('hidden');
 		      submitButton.disabled = false;
 		    }
+
+    async function saveMonitoredDomain() {
+      monitorMsg.textContent = '';
+      monitorSubmitButton.disabled = true;
+      try {
+        const payload = {
+          host: (monitorHostInput.value || '').trim(),
+          port: Number(monitorPortInput.value || 443),
+          scan_interval_seconds: Number(monitorIntervalInput.value || 86400),
+          enabled: true,
+          notes: ''
+        };
+        if (!payload.host) throw new Error('Укажите домен для мониторинга.');
+        await fetchJson('/api/monitor/domains', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        monitorMsg.textContent = 'Домен добавлен в мониторинг.';
+        await loadMonitoredDomains();
+      } catch (error) {
+        monitorMsg.textContent = error.message || 'Не удалось сохранить домен.';
+      } finally {
+        monitorSubmitButton.disabled = false;
+      }
+    }
+
+    async function loadMonitoredDomains() {
+      try {
+        const data = await fetchJson('/api/monitor/domains?limit=30');
+        const items = data.items || [];
+        if (!items.length) {
+          monitorList.innerHTML = '<p class="muted">Пока нет доменов в мониторинге.</p>';
+          return;
+        }
+        const rows = await Promise.all(items.map(async (item) => {
+          const events = await fetchJson('/api/monitor/domains/' + encodeURIComponent(String(item.id)) + '/events?limit=1');
+          const lastEvent = (events.items || [])[0];
+          return `
+            <tr>
+              <td>${escapeHtml(item.host)}:${escapeHtml(String(item.port || 443))}</td>
+              <td>${item.enabled ? 'вкл' : 'выкл'}</td>
+              <td>${escapeHtml(String(item.scan_interval_seconds || ''))}</td>
+              <td>${escapeHtml(item.next_scan_at || '—')}</td>
+              <td>${escapeHtml(lastEvent ? (lastEvent.title || lastEvent.event_type || '—') : '—')}</td>
+            </tr>
+          `;
+        }));
+        monitorList.innerHTML = `
+          <table>
+            <thead>
+              <tr>
+                <th>Домен</th>
+                <th>Статус</th>
+                <th>Интервал</th>
+                <th>След. скан</th>
+                <th>Последнее событие</th>
+              </tr>
+            </thead>
+            <tbody>${rows.join('')}</tbody>
+          </table>
+        `;
+      } catch (error) {
+        monitorList.innerHTML = '<p class="muted">Не удалось загрузить список мониторинга.</p>';
+      }
+    }
 
 		    function renderReport(report, jobId, status) {
       const cert = report.certificate || {};
