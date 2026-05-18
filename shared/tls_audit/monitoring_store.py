@@ -4,6 +4,9 @@ from typing import Dict, List, Optional
 
 from .monitoring import FindingSummary, MonitoringEvent, MonitoringSnapshot
 
+DEFAULT_SCAN_INTERVAL_SECONDS = 86400
+MIN_SCAN_INTERVAL_SECONDS = 86400
+
 
 @dataclass
 class MonitoredDomain:
@@ -11,7 +14,7 @@ class MonitoredDomain:
     host: str
     port: int = 443
     enabled: bool = True
-    scan_interval_seconds: int = 86400
+    scan_interval_seconds: int = DEFAULT_SCAN_INTERVAL_SECONDS
     last_scan_at: Optional[datetime] = None
     next_scan_at: Optional[datetime] = None
     notes: str = ""
@@ -24,7 +27,7 @@ class NullMonitoringStore:
         self,
         host: str,
         port: int = 443,
-        scan_interval_seconds: int = 86400,
+        scan_interval_seconds: int = DEFAULT_SCAN_INTERVAL_SECONDS,
         enabled: bool = True,
         notes: str = "",
     ) -> MonitoredDomain:
@@ -33,7 +36,7 @@ class NullMonitoringStore:
             host=host,
             port=port,
             enabled=enabled,
-            scan_interval_seconds=scan_interval_seconds,
+            scan_interval_seconds=normalize_scan_interval(scan_interval_seconds),
             notes=notes,
         )
 
@@ -82,11 +85,12 @@ class InMemoryMonitoringStore(NullMonitoringStore):
         self,
         host: str,
         port: int = 443,
-        scan_interval_seconds: int = 86400,
+        scan_interval_seconds: int = DEFAULT_SCAN_INTERVAL_SECONDS,
         enabled: bool = True,
         notes: str = "",
     ) -> MonitoredDomain:
         now = utcnow()
+        scan_interval_seconds = normalize_scan_interval(scan_interval_seconds)
         for domain in self.domains.values():
             if domain.host == host and domain.port == port:
                 domain.enabled = enabled
@@ -183,10 +187,11 @@ class PostgresMonitoringStore(NullMonitoringStore):
         self,
         host: str,
         port: int = 443,
-        scan_interval_seconds: int = 86400,
+        scan_interval_seconds: int = DEFAULT_SCAN_INTERVAL_SECONDS,
         enabled: bool = True,
         notes: str = "",
     ) -> MonitoredDomain:
+        scan_interval_seconds = normalize_scan_interval(scan_interval_seconds)
         with self.connect() as conn:
             row = conn.execute(
                 """
@@ -370,6 +375,10 @@ def domain_from_row(row: Dict[str, object]) -> MonitoredDomain:
         next_scan_at=row.get("next_scan_at"),
         notes=str(row.get("notes") or ""),
     )
+
+
+def normalize_scan_interval(scan_interval_seconds: int) -> int:
+    return max(MIN_SCAN_INTERVAL_SECONDS, int(scan_interval_seconds))
 
 
 def snapshot_from_row(row: Dict[str, object]) -> MonitoringSnapshot:
