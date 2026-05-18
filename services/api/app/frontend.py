@@ -1322,13 +1322,7 @@ def render_frontend() -> str:
                 <button type="button" data-monitor-scan="${escapeHtml(String(item.id))}" style="margin-left:6px">
                   сканировать
                 </button>
-                <button type="button" data-monitor-history="${escapeHtml(String(item.id))}" style="margin-left:6px">
-                  история
-                </button>
               </td>
-            </tr>
-            <tr class="hidden" id="monitor-history-${escapeHtml(String(item.id))}">
-              <td colspan="6"><div class="muted">Загружаем историю…</div></td>
             </tr>
           `;
         }));
@@ -1362,45 +1356,8 @@ def render_frontend() -> str:
             await runMonitoredScanNow(id);
           });
         });
-        monitorList.querySelectorAll('[data-monitor-history]').forEach((btn) => {
-          btn.addEventListener('click', async () => {
-            const id = btn.getAttribute('data-monitor-history');
-            if (!id) return;
-            await toggleMonitorHistory(id);
-          });
-        });
       } catch (error) {
         monitorList.innerHTML = '<p class="muted">Не удалось загрузить список мониторинга.</p>';
-      }
-    }
-
-    async function toggleMonitorHistory(domainId) {
-      const row = document.getElementById('monitor-history-' + domainId);
-      if (!row) return;
-      if (!row.classList.contains('hidden')) {
-        row.classList.add('hidden');
-        return;
-      }
-      row.classList.remove('hidden');
-      const cell = row.querySelector('td');
-      cell.innerHTML = '<div class="muted">Загружаем историю…</div>';
-      try {
-        const [snapshots, events] = await Promise.all([
-          fetchJson('/api/monitor/domains/' + encodeURIComponent(String(domainId)) + '/snapshots?limit=5'),
-          fetchJson('/api/monitor/domains/' + encodeURIComponent(String(domainId)) + '/events?limit=5')
-        ]);
-        const snapshotItems = snapshots.items || [];
-        const eventItems = events.items || [];
-        cell.innerHTML = `
-          <div class="kv">
-            <div class="k">Последние оценки</div>
-            <div class="v">${snapshotItems.length ? snapshotItems.map((s) => escapeHtml((s.created_at || '—') + ' · ' + (s.grade || '—') + ' · ' + (s.score ?? '—'))).join('<br>') : 'нет данных'}</div>
-            <div class="k">Последние события</div>
-            <div class="v">${eventItems.length ? eventItems.map((e) => escapeHtml((e.created_at || '—') + ' · ' + (e.title || e.event_type || '—'))).join('<br>') : 'нет данных'}</div>
-          </div>
-        `;
-      } catch (error) {
-        cell.innerHTML = '<div class="muted">Не удалось загрузить историю.</div>';
       }
     }
 
