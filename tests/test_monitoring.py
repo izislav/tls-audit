@@ -227,6 +227,9 @@ class MonitoringStoreTests(unittest.TestCase):
         self.assertEqual(store.latest_snapshot(domain.id).scan_id, "scan-1")
         self.assertEqual(snapshot.id, 1)
         self.assertEqual(store.events[0]["event_type"], "grade_improved")
+        self.assertEqual(store.list_domains()[0].id, domain.id)
+        self.assertEqual(store.list_snapshots(domain.id)[0].scan_id, "scan-1")
+        self.assertEqual(store.list_events(domain.id)[0]["event_type"], "grade_improved")
 
 
 class MonitoringPipelineTests(unittest.TestCase):
