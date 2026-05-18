@@ -2,6 +2,7 @@ import argparse
 import json
 
 from .archive import archive_store
+from .monitoring import monitoring_store
 from .settings import settings
 
 
@@ -16,6 +17,27 @@ def cleanup_reports(retention_days: int, error_retention_days: int) -> dict[str,
 
 def report_stats(days: int) -> dict[str, object]:
     return archive_store.stats(days=days)
+
+
+def add_monitored_domain(
+    host: str,
+    port: int,
+    interval_seconds: int,
+    enabled: bool,
+    notes: str,
+) -> dict[str, object]:
+    domain = monitoring_store.upsert_domain(
+        host=host,
+        port=port,
+        scan_interval_seconds=interval_seconds,
+        enabled=enabled,
+        notes=notes,
+    )
+    return domain.__dict__
+
+
+def due_monitored_domains(limit: int) -> list[dict[str, object]]:
+    return [domain.__dict__ for domain in monitoring_store.due_domains(limit=limit)]
 
 
 def main() -> None:
@@ -42,6 +64,15 @@ def main() -> None:
         default=7,
         help="Number of recent days to include.",
     )
+    monitor_add = subparsers.add_parser("monitor-add", help="Add or update monitored domain.")
+    monitor_add.add_argument("host", help="Public hostname to monitor.")
+    monitor_add.add_argument("--port", type=int, default=443)
+    monitor_add.add_argument("--interval-seconds", type=int, default=86400)
+    monitor_add.add_argument("--disabled", action="store_true")
+    monitor_add.add_argument("--notes", default="")
+
+    monitor_due = subparsers.add_parser("monitor-due", help="List monitored domains due for scan.")
+    monitor_due.add_argument("--limit", type=int, default=50)
 
     args = parser.parse_args()
     if args.command == "cleanup":
@@ -49,6 +80,18 @@ def main() -> None:
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     elif args.command == "stats":
         result = report_stats(args.days)
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True, default=str))
+    elif args.command == "monitor-add":
+        result = add_monitored_domain(
+            host=args.host,
+            port=args.port,
+            interval_seconds=args.interval_seconds,
+            enabled=not args.disabled,
+            notes=args.notes,
+        )
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True, default=str))
+    elif args.command == "monitor-due":
+        result = due_monitored_domains(limit=args.limit)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True, default=str))
 
 
