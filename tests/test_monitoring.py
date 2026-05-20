@@ -82,7 +82,7 @@ class MonitoringDiffTests(unittest.TestCase):
             {
                 "grade": "B",
                 "score": 84,
-                "certificate": {"expires_in_days": 24},
+                "certificate": {"expires_in_days": 19},
                 "protocols": {
                     "items": [
                         {"version": "TLS 1.0", "supported": True},
@@ -169,11 +169,11 @@ class MonitoringDiffTests(unittest.TestCase):
         self.assertIn("certificate_expired", [event.event_type for event in events])
         self.assertIn("critical_added", [event.event_type for event in events])
 
-    def test_scan_failed_event_is_high_severity(self) -> None:
+    def test_scan_failed_event_is_critical_severity(self) -> None:
         event = scan_failed_event("timeout")
 
         self.assertEqual(event.event_type, "scan_failed")
-        self.assertEqual(event.severity, "high")
+        self.assertEqual(event.severity, "critical")
         self.assertEqual(event.detail, "timeout")
 
 

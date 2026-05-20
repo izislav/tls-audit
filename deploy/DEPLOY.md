@@ -194,9 +194,9 @@ email:
 
 ```bash
 ALERT_EMAIL_TO=admin@tlsaudit.ru
-ALERT_EMAIL_FROM=tls-audit@tlsaudit.ru
+ALERT_EMAIL_FROM=info@tlsaudit.ru
 SMTP_URL=smtps://mail.example.ru:465
-SMTP_USER=tls-audit@tlsaudit.ru
+SMTP_USER=info@tlsaudit.ru
 SMTP_PASSWORD=change-me
 ```
 

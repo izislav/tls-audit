@@ -1,14 +1,16 @@
 import logging
 import os
 import time
+from datetime import timezone
 from typing import Callable, Optional
 
 from services.api.app.jobs import job_store
 from services.api.app.monitoring import monitoring_store
 from services.api.app.queue import enqueue_scan_job
+from services.api.app.subscriptions import subscription_store
 from services.api.app.target_guard import target_scan_guard
 from shared.tls_audit.logging import log_event
-from shared.tls_audit.monitoring_scheduler import SchedulerResult, schedule_due_scans
+from shared.tls_audit.monitoring_scheduler import SchedulerResult, schedule_domain_scan, schedule_due_scans
 
 logger = logging.getLogger("tls_audit.scheduler")
 
@@ -49,8 +51,83 @@ def run_once(limit: Optional[int] = None) -> SchedulerResult:
         queued=len(result.queued),
         skipped=len(result.skipped),
     )
+    process_subscriptions(limit=batch_size)
     return result
 
+
+def process_subscriptions(limit: int) -> None:
+    due = subscription_store.due(limit=max(1, int(limit)))
+    if not due:
+        return
+    for sub in due:
+        domain = monitoring_store.upsert_domain(
+            host=sub.host,
+            port=sub.port,
+            enabled=True,
+            notes=f"subscription:{sub.email}",
+        )
+        scheduled = schedule_domain_scan(
+            domain=domain,
+            monitoring_store=monitoring_store,
+            job_store=job_store,
+            enqueue_scan_job=enqueue_scan_job,
+            target_scan_guard=target_scan_guard,
+            payload_extra={
+                "subscription_id": sub.id,
+                "subscription_email": sub.email,
+                "subscription_plan": sub.plan,
+            },
+        )
+        if isinstance(scheduled, dict):
+            log_event(
+                logger,
+                "subscription_scan_skipped",
+                subscription_id=sub.id,
+                email=sub.email,
+                host=sub.host,
+                reason=scheduled.get("reason"),
+            )
+            continue
+        log_event(
+            logger,
+            "subscription_scan_queued",
+            subscription_id=sub.id,
+            email=sub.email,
+            host=sub.host,
+            port=sub.port,
+            job_id=scheduled.job_id,
+        )
+
+
+def run_subscription_now(subscription_id: int) -> dict:
+    sub = subscription_store.get_by_id(int(subscription_id))
+    if not sub:
+        return {"status": "not_found"}
+    if not sub.enabled:
+        return {"status": "disabled"}
+    if not sub.confirmed:
+        return {"status": "not_confirmed"}
+    domain = monitoring_store.upsert_domain(
+        host=sub.host,
+        port=sub.port,
+        enabled=True,
+        notes=f"subscription:{sub.email}",
+    )
+    scheduled = schedule_domain_scan(
+        domain=domain,
+        monitoring_store=monitoring_store,
+        job_store=job_store,
+        enqueue_scan_job=enqueue_scan_job,
+        target_scan_guard=target_scan_guard,
+        payload_extra={
+            "subscription_id": sub.id,
+            "subscription_email": sub.email,
+            "subscription_plan": sub.plan,
+        },
+    )
+    if isinstance(scheduled, dict):
+        return {"status": "skipped", **scheduled}
+    return {"status": "queued", "job_id": scheduled.job_id, "host": sub.host, "port": sub.port}
 
 def run_loop(
     poll_seconds: Optional[int] = None,

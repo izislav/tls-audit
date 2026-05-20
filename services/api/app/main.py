@@ -17,6 +17,7 @@ from shared.tls_audit.logging import log_event
 from shared.tls_audit.traffic_control import AdmissionDecision
 
 from .archive import archive_store
+from .billing import billing_store
 from .denylist import denylist
 from .frontend import STATIC_PAGES, render_frontend, render_static_page
 from .jobs import job_store
@@ -24,12 +25,15 @@ from .monitoring import monitoring_store
 from .queue import enqueue_scan_job, queue_depth
 from .rate_limit import rate_limiter
 from .settings import settings
+from .subscriptions import subscription_store
 from .target_guard import target_scan_guard
 from shared.tls_audit.monitoring_store import (
     DEFAULT_SCAN_INTERVAL_SECONDS,
     MIN_SCAN_INTERVAL_SECONDS,
 )
 from shared.tls_audit.monitoring_scheduler import schedule_domain_scan
+from shared.tls_audit.email_sender import send_email
+import os
 
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -60,6 +64,21 @@ class MonitorDomainPatchRequest(BaseModel):
     enabled: bool | None = None
     scan_interval_seconds: int | None = Field(default=None, ge=1)
     notes: str | None = Field(default=None, max_length=1000)
+
+
+class SubscribeRequest(BaseModel):
+    host: str = Field(..., min_length=1, max_length=253)
+    port: int = Field(default=443, ge=1, le=65535)
+    email: str = Field(..., min_length=5, max_length=254)
+    plan: str = Field(default="free", min_length=3, max_length=16)
+
+
+class ProCheckoutRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=254)
+
+
+class ProActivateDemoRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=254)
 
 
 @app.get("/health")
@@ -158,6 +177,64 @@ def haproxy_tls_config_page() -> str:
 @app.get("/methodology", response_class=HTMLResponse)
 def methodology_page() -> str:
     return render_static_page("methodology")
+
+
+@app.get("/support", response_class=HTMLResponse)
+def support_page() -> str:
+    return render_frontend()
+
+
+@app.get("/monitor-status", response_class=HTMLResponse)
+def monitor_status_page() -> str:
+    return render_static_page("monitor-status")
+
+
+@app.post("/api/billing/pro/checkout")
+def create_pro_checkout(payload: ProCheckoutRequest) -> Dict[str, object]:
+    email = payload.email.strip().lower()
+    if "@" not in email or email.startswith("@") or email.endswith("@"):
+        raise HTTPException(status_code=400, detail="Укажите корректный email.")
+    checkout_id = f"pro_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+    checkout_url = f"{settings.public_base_url}/"
+    billing_store.create_checkout(email, checkout_id)
+    return {
+        "status": "pending_provider",
+        "plan": "pro",
+        "price_usd_monthly": 10,
+        "domain_limit": 10,
+        "checkout_id": checkout_id,
+        "checkout_url": checkout_url,
+        "message": "Платежный провайдер подключается. Используйте контакт для ручной активации Pro.",
+    }
+
+
+@app.post("/api/billing/pro/activate-demo")
+def activate_pro_demo(payload: ProActivateDemoRequest) -> Dict[str, object]:
+    email = payload.email.strip().lower()
+    if "@" not in email or email.startswith("@") or email.endswith("@"):
+        raise HTTPException(status_code=400, detail="Укажите корректный email.")
+    account = billing_store.activate_pro(email)
+    return {
+        "status": account.status,
+        "plan": "pro",
+        "email": account.email,
+        "domain_limit": account.domain_limit,
+    }
+
+
+@app.get("/api/billing/pro/status")
+def get_pro_status(email: str) -> Dict[str, object]:
+    normalized = email.strip().lower()
+    account = billing_store.get_by_email(normalized)
+    if not account:
+        return {"email": normalized, "plan": "free", "status": "inactive", "domain_limit": 1}
+    return {
+        "email": account.email,
+        "plan": "pro" if account.plan == "support" else account.plan,
+        "status": account.status,
+        "domain_limit": account.domain_limit,
+        "checkout_id": account.checkout_id,
+    }
 
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
@@ -466,6 +543,52 @@ def list_monitor_events(domain_id: int, limit: int = 50) -> Dict[str, object]:
     return {"items": [event_to_dict(item) for item in events]}
 
 
+@app.get("/api/monitor/domains/{domain_id}/trend")
+def monitor_domain_trend(domain_id: int, days: int = 90) -> Dict[str, object]:
+    snapshots = monitoring_store.list_snapshots(
+        monitored_domain_id=domain_id,
+        limit=max(10, min(days * 8, 2000)),
+    )
+    cutoff = datetime.now(timezone.utc).timestamp() - (max(1, min(days, 3650)) * 86400)
+    points = []
+    for item in reversed(snapshots):
+        ts = None
+        if item.created_at is not None and hasattr(item.created_at, "timestamp"):
+            ts = item.created_at.timestamp()
+        if ts is not None and ts < cutoff:
+            continue
+        points.append(
+            {
+                "snapshot_id": item.id,
+                "created_at": iso_or_none(item.created_at),
+                "grade": item.grade,
+                "score": item.score,
+                "critical_findings": len(
+                    [f for f in item.findings if str(f.severity).lower() == "critical"]
+                ),
+                "high_findings": len(
+                    [f for f in item.findings if str(f.severity).lower() == "high"]
+                ),
+            }
+        )
+    latest = points[-1] if points else None
+    first = points[0] if points else None
+    delta_score = None
+    if latest and first and latest.get("score") is not None and first.get("score") is not None:
+        delta_score = int(latest["score"]) - int(first["score"])
+    return {
+        "domain_id": domain_id,
+        "days": days,
+        "points": points,
+        "summary": {
+            "count": len(points),
+            "latest_grade": latest.get("grade") if latest else None,
+            "latest_score": latest.get("score") if latest else None,
+            "score_delta": delta_score,
+        },
+    }
+
+
 @app.patch("/api/monitor/domains/{domain_id}")
 def patch_monitor_domain(domain_id: int, payload: MonitorDomainPatchRequest) -> Dict[str, object]:
     if payload.scan_interval_seconds is not None and payload.scan_interval_seconds < MIN_SCAN_INTERVAL_SECONDS:
@@ -508,6 +631,214 @@ def monitor_scan_now(domain_id: int) -> Dict[str, object]:
         "port": scheduled.port,
         "job_id": scheduled.job_id,
     }
+
+
+@app.post("/api/subscriptions/monitoring")
+def create_monitor_subscription(payload: SubscribeRequest) -> Dict[str, object]:
+    try:
+        target = validate_target(payload.host, payload.port, resolve=False)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    email = payload.email.strip().lower()
+    if "@" not in email or email.startswith("@") or email.endswith("@"):
+        raise HTTPException(status_code=400, detail="Укажите корректный email.")
+    plan = payload.plan.strip().lower()
+    if plan == "pro":
+        plan = "support"
+    if plan not in {"free", "support"}:
+        raise HTTPException(status_code=400, detail="Неизвестный план подписки.")
+    existing = [item for item in subscription_store.find_by_email(email) if item.enabled]
+    same_target_exists = any(item.host == target.host and item.port == target.port for item in existing)
+    plan_limit = 1 if plan == "free" else 10
+    if len(existing) >= plan_limit and not same_target_exists:
+        detail = (
+            "Для бесплатного режима доступен мониторинг только одного домена на email."
+            if plan == "free"
+            else "Для плана Pro доступно до 10 доменов на email."
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=detail,
+        )
+    sub = subscription_store.upsert_pending(
+        host=target.host,
+        port=target.port,
+        email=email,
+        plan=plan,
+    )
+    confirm_url = f"{settings.public_base_url}/api/subscriptions/monitoring/confirm?token={sub.token}"
+    unsubscribe_url = f"{settings.public_base_url}/api/subscriptions/monitoring/unsubscribe?token={sub.token}"
+    confirmation_sent = send_confirmation_email(
+        email=sub.email,
+        host=sub.host,
+        plan=sub.plan,
+        confirm_url=confirm_url,
+        unsubscribe_url=unsubscribe_url,
+    )
+    return {
+        "status": "pending_confirmation",
+        "subscription_id": sub.id,
+        "host": sub.host,
+        "port": sub.port,
+        "email": sub.email,
+        "plan": sub.plan,
+        "confirm_url": confirm_url,
+        "unsubscribe_url": unsubscribe_url,
+        "confirmation_sent": confirmation_sent,
+    }
+
+
+@app.get("/api/subscriptions/monitoring")
+def list_monitor_subscriptions(email: str, limit: int = 20) -> Dict[str, object]:
+    normalized = email.strip().lower()
+    if "@" not in normalized or normalized.startswith("@") or normalized.endswith("@"):
+        raise HTTPException(status_code=400, detail="Укажите корректный email.")
+    items = subscription_store.list_by_email(normalized, limit=max(1, min(limit, 100)))
+    has_support = any(item.plan == "support" and item.enabled for item in items)
+    account = billing_store.get_by_email(normalized)
+    if account and account.plan == "support" and account.status == "active":
+        effective_plan = "pro"
+        effective_limit = max(10, int(account.domain_limit or 10))
+    elif has_support:
+        effective_plan = "pro"
+        effective_limit = 10
+    else:
+        effective_plan = "free"
+        effective_limit = 1
+    return {
+        "email": normalized,
+        "plan": effective_plan,
+        "domain_limit": effective_limit,
+        "items": [
+            {
+                "id": item.id,
+                "host": item.host,
+                "port": item.port,
+                "plan": "pro" if item.plan == "support" else item.plan,
+                "enabled": item.enabled,
+                "confirmed": item.confirmed,
+                "last_sent_at": iso_or_none(item.last_sent_at),
+                "next_run_at": iso_or_none(item.next_run_at),
+                "created_at": iso_or_none(item.created_at),
+            }
+            for item in items
+        ],
+    }
+
+
+@app.get("/api/subscriptions/monitoring/events")
+def list_monitor_subscription_events(email: str, limit: int = 30) -> Dict[str, object]:
+    normalized = email.strip().lower()
+    if "@" not in normalized or normalized.startswith("@") or normalized.endswith("@"):
+        raise HTTPException(status_code=400, detail="Укажите корректный email.")
+    items = subscription_store.list_by_email(normalized, limit=max(1, min(limit, 100)))
+    domains = monitoring_store.list_domains(limit=1000) if getattr(monitoring_store, "enabled", False) else []
+    domain_map = {(item.host, int(item.port)): item for item in domains}
+    per_domain_limit = max(1, min(10, limit))
+    result_items = []
+    for sub in items:
+        domain = domain_map.get((sub.host, int(sub.port)))
+        events: list[dict[str, object]] = []
+        if domain:
+            events = [
+                event_to_dict(item)
+                for item in monitoring_store.list_events(domain.id, limit=per_domain_limit)
+            ]
+        result_items.append(
+            {
+                "subscription_id": sub.id,
+                "host": sub.host,
+                "port": sub.port,
+                "plan": "pro" if sub.plan == "support" else sub.plan,
+                "enabled": sub.enabled,
+                "confirmed": sub.confirmed,
+                "events": events,
+            }
+        )
+    return {"email": normalized, "items": result_items}
+
+
+@app.get("/api/subscriptions/monitoring/confirm", response_class=HTMLResponse)
+def confirm_monitor_subscription(token: str) -> HTMLResponse:
+    sub = subscription_store.confirm(token)
+    if not sub:
+        body = """<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Подписка не найдена</title>
+<style>
+body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f4f5f4;margin:0;color:#1a1f2b}
+.wrap{max-width:760px;margin:40px auto;padding:0 16px}
+.card{background:#fff;border:1px solid #d7dbd7;border-radius:10px;padding:18px}
+h1{margin:0 0 12px;font-size:30px} p{margin:8px 0} .muted{color:#5b6272} a{color:#0f766e}
+</style></head><body><div class="wrap"><div class="card">
+<h1>Ссылка недействительна</h1>
+<p class="muted">Подписка не найдена, уже подтверждена или была отключена.</p>
+<p><a href="/">Вернуться на главную</a></p>
+</div></div></body></html>"""
+        return HTMLResponse(content=body, status_code=404)
+    plan_title = "Бесплатный" if sub.plan == "free" else "Pro (расширенный)"
+    body = f"""<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Подписка подтверждена</title>
+<style>
+body{{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f4f5f4;margin:0;color:#1a1f2b}}
+.wrap{{max-width:760px;margin:40px auto;padding:0 16px}}
+.card{{background:#fff;border:1px solid #d7dbd7;border-radius:10px;padding:18px}}
+h1{{margin:0 0 12px;font-size:30px}} p{{margin:8px 0}} .muted{{color:#5b6272}}
+a{{color:#0f766e}}
+</style></head><body><div class="wrap"><div class="card">
+<h1>Подписка подтверждена</h1>
+<p><strong>Домен:</strong> {sub.host}</p>
+<p><strong>Email:</strong> {sub.email}</p>
+<p><strong>План:</strong> {plan_title}</p>
+<p class="muted">Мониторинг активирован. Следующий отчёт придёт автоматически по расписанию.</p>
+<p><a href="/">Вернуться на главную</a></p>
+</div></div></body></html>"""
+    return HTMLResponse(content=body)
+
+
+@app.get("/api/subscriptions/monitoring/unsubscribe", response_class=HTMLResponse)
+def unsubscribe_monitor_subscription(token: str) -> HTMLResponse:
+    sub = subscription_store.disable(token)
+    if not sub:
+        body = """<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Подписка не найдена</title></head>
+<body style="font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f4f5f4;margin:0;color:#1a1f2b">
+<div style="max-width:760px;margin:40px auto;padding:0 16px">
+<div style="background:#fff;border:1px solid #d7dbd7;border-radius:10px;padding:18px">
+<h1 style="margin:0 0 12px;font-size:30px">Ссылка недействительна</h1>
+<p style="color:#5b6272">Подписка не найдена или уже отключена.</p>
+<p><a style="color:#0f766e" href="/">Вернуться на главную</a></p>
+</div></div></body></html>"""
+        return HTMLResponse(content=body, status_code=404)
+    body = f"""<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Подписка отключена</title></head>
+<body style="font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f4f5f4;margin:0;color:#1a1f2b">
+<div style="max-width:760px;margin:40px auto;padding:0 16px">
+<div style="background:#fff;border:1px solid #d7dbd7;border-radius:10px;padding:18px">
+<h1 style="margin:0 0 12px;font-size:30px">Подписка отключена</h1>
+<p><strong>Домен:</strong> {sub.host}</p>
+<p><strong>Email:</strong> {sub.email}</p>
+<p style="color:#5b6272">Автоматические письма больше не будут отправляться.</p>
+<p><a href="/" style="color:#0f766e">Вернуться на главную</a></p>
+</div></div></body></html>"""
+    return HTMLResponse(content=body)
+
+
+@app.post("/api/subscriptions/monitoring/{subscription_id}/run-now")
+def run_monitor_subscription_now(subscription_id: int) -> Dict[str, object]:
+    from services.scheduler.scheduler import run_subscription_now
+
+    result = run_subscription_now(subscription_id)
+    if result["status"] == "not_found":
+        raise HTTPException(status_code=404, detail="Подписка не найдена.")
+    if result["status"] == "disabled":
+        raise HTTPException(status_code=409, detail="Подписка отключена.")
+    if result["status"] == "not_confirmed":
+        raise HTTPException(status_code=409, detail="Подписка не подтверждена.")
+    return result
 
 
 def request_ip(request: Request) -> str:
@@ -580,3 +911,60 @@ def iso_or_none(value) -> str | None:
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return str(value)
+
+
+def send_confirmation_email(
+    *,
+    email: str,
+    host: str,
+    plan: str,
+    confirm_url: str,
+    unsubscribe_url: str,
+) -> bool:
+    plan_norm = str(plan or "free").strip().lower()
+    if plan_norm == "support":
+        plan_title = "Pro ($10/мес, до 10 доменов)"
+    else:
+        plan_title = "бесплатный (1 домен)"
+    subject = f"TLS Audit: подтвердите подписку для {host}"
+    body = (
+        f"Вы запросили подписку на мониторинг для {host}.\n"
+        f"План: {plan_title}.\n\n"
+        f"Подтвердить подписку: {confirm_url}\n"
+        f"Отключить подписку: {unsubscribe_url}\n\n"
+        "Если это были не вы, просто проигнорируйте письмо."
+    )
+    smtp_url = os.getenv("SMTP_URL", "").strip()
+    smtp_user = os.getenv("SMTP_USER", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    mail_from = os.getenv("ALERT_EMAIL_FROM", "tls-audit@localhost").strip()
+    if not smtp_url:
+        log_event(
+            logger,
+            "subscription_confirmation_email_skipped",
+            email=email,
+            host=host,
+            reason="smtp_not_configured",
+            subject=subject,
+            body=body,
+        )
+        return False
+    try:
+        return send_email(
+            smtp_url=smtp_url,
+            smtp_user=smtp_user,
+            smtp_password=smtp_password,
+            mail_from=mail_from,
+            mail_to=email,
+            subject=subject,
+            body=body,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log_event(
+            logger,
+            "subscription_confirmation_email_failed",
+            email=email,
+            host=host,
+            error=str(exc),
+        )
+        return False

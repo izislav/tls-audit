@@ -477,6 +477,44 @@ STATIC_PAGES = {
             ),
         ],
     },
+    "support": {
+        "title": "TLS Audit Pro",
+        "description": "Расширенный режим: до 10 доменов, развернутые отчеты и уведомления об изменениях конфигурации.",
+        "path": "/support",
+        "sections": [
+            (
+                "Что входит в Pro",
+                [
+                    "Развернутый email-отчет с изменениями относительно прошлого скана.",
+                    "Приоритетные уведомления об ухудшении конфигурации и критичных рисках.",
+                    "Расширенная история и динамика по доменам в мониторинге.",
+                    "До 10 доменов на один email.",
+                ],
+            ),
+            (
+                "Подключение",
+                [
+                    "Сейчас расширенный режим работает бесплатно в рамках локального этапа.",
+                    "Для подключения достаточно оформить подписку на главной странице и подтвердить email.",
+                    f"По вопросам работы сервиса: {CONTACT_EMAIL}.",
+                ],
+            ),
+        ],
+    },
+    "monitor-status": {
+        "title": "Статус подписок",
+        "description": "Техническая read-only страница: статус подписок мониторинга по email.",
+        "path": "/monitor-status",
+        "sections": [
+            (
+                "Назначение",
+                [
+                    "Страница показывает состояние подписок по email без возможности управления.",
+                    "Используйте для быстрой проверки, что подписка подтверждена и активна.",
+                ],
+            ),
+        ],
+    },
 }
 
 
@@ -510,6 +548,75 @@ def render_static_page(page_key: str) -> str:
         """
         for title, items in page["sections"]
     )
+    if page_key == "monitor-status":
+        sections += """
+        <section>
+          <h2>Проверка статуса</h2>
+          <div style="display:grid;gap:10px;max-width:860px">
+            <input id="monitor-status-email" type="email" placeholder="admin@example.ru" style="min-height:44px;border-radius:8px;border:1px solid #c9cec6;padding:0 12px;font:inherit">
+            <button id="monitor-status-load" type="button" style="min-height:44px;border:0;border-radius:8px;padding:0 16px;background:#0f766e;color:#fff;font-weight:750;cursor:pointer">Показать статус</button>
+            <div id="monitor-status-message" class="lead" style="margin-top:0"></div>
+            <div id="monitor-status-table"></div>
+          </div>
+        </section>
+        <script>
+        (() => {
+          const emailInput = document.getElementById('monitor-status-email');
+          const loadBtn = document.getElementById('monitor-status-load');
+          const msg = document.getElementById('monitor-status-message');
+          const tableBox = document.getElementById('monitor-status-table');
+          if (!emailInput || !loadBtn || !msg || !tableBox) return;
+          loadBtn.addEventListener('click', async () => {
+            msg.textContent = '';
+            tableBox.innerHTML = '';
+            loadBtn.disabled = true;
+            try {
+              const email = encodeURIComponent((emailInput.value || '').trim());
+              const resp = await fetch('/api/subscriptions/monitoring?email=' + email + '&limit=50');
+              const data = await resp.json();
+              if (!resp.ok) {
+                throw new Error((data && data.detail) || 'Не удалось получить статус.');
+              }
+              msg.textContent = `План: ${data.plan}, лимит: ${data.domain_limit}. Подписок: ${(data.items || []).length}.`;
+              const items = Array.isArray(data.items) ? data.items : [];
+              if (!items.length) {
+                tableBox.innerHTML = '<p class="lead" style="margin-top:0">Подписок не найдено.</p>';
+                return;
+              }
+              const rows = items.map((item) => `
+                <tr>
+                  <td>${item.host}:${item.port}</td>
+                  <td>${item.plan}</td>
+                  <td>${item.confirmed ? 'yes' : 'no'}</td>
+                  <td>${item.enabled ? 'yes' : 'no'}</td>
+                  <td>${item.last_sent_at || '—'}</td>
+                  <td>${item.next_run_at || '—'}</td>
+                </tr>
+              `).join('');
+              tableBox.innerHTML = `
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Домен</th>
+                      <th>План</th>
+                      <th>Confirmed</th>
+                      <th>Enabled</th>
+                      <th>Last sent</th>
+                      <th>Next run</th>
+                    </tr>
+                  </thead>
+                  <tbody>${rows}</tbody>
+                </table>
+              `;
+            } catch (error) {
+              msg.textContent = error.message || 'Ошибка загрузки.';
+            } finally {
+              loadBtn.disabled = false;
+            }
+          });
+        })();
+        </script>
+        """
     return f"""<!doctype html>
 <html lang="ru">
 <head>
@@ -588,6 +695,7 @@ def render_static_page(page_key: str) -> str:
         <a href="/terms">Пользовательское соглашение</a>
         <a href="/cookies">Cookies</a>
         <a href="/security">Безопасность</a>
+        <a href="/monitor-status">Статус подписок</a>
       </nav>
     </footer>
   </main>
@@ -670,7 +778,7 @@ def render_frontend() -> str:
     main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 48px; }
     header {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 760px);
       gap: 18px;
       align-items: end;
       padding: 14px 0 24px;
@@ -686,10 +794,19 @@ def render_frontend() -> str:
 	    .brand-link:hover { color: var(--teal-dark); }
     form {
       display: grid;
-      grid-template-columns: minmax(220px, 1fr) 112px 136px;
+      grid-template-columns: minmax(220px, 1fr) 170px;
       gap: 8px;
       align-items: center;
-      min-width: min(100%, 620px);
+      width: 100%;
+      min-width: 0;
+      margin-left: auto;
+      justify-self: end;
+    }
+    .subscription-cta-row {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
     }
     label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
     input, button {
@@ -712,6 +829,7 @@ def render_frontend() -> str:
       cursor: pointer;
       padding: 0 14px;
       white-space: nowrap;
+      min-width: 0;
     }
     button:hover { background: var(--teal-dark); }
     button:disabled { cursor: wait; opacity: .65; }
@@ -937,31 +1055,13 @@ def render_frontend() -> str:
     details { margin-top: 12px; }
     summary { cursor: pointer; font-weight: 750; color: var(--blue); }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    #monitoring-panel table th:last-child,
-    #monitoring-panel table td:last-child {
-      text-align: right;
-      width: 1%;
-      white-space: nowrap;
-    }
-    .monitor-actions {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      justify-content: flex-end;
-    }
-    .monitor-btn {
-      min-height: 30px;
-      border-radius: 6px;
-      padding: 0 10px;
-      font-size: 12px;
-      font-weight: 700;
-      line-height: 1;
-    }
-    .monitor-btn.secondary {
-      background: #2f4f79;
-    }
-    .monitor-btn.secondary:hover {
-      background: #264468;
+    .sub-dialog { border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-top: 12px; background: #fff; }
+    .sub-note { margin: 0 0 10px; color: var(--muted); }
+    #subscribe-form {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: end;
     }
     @media print {
       @page { margin: 12mm; }
@@ -999,8 +1099,9 @@ def render_frontend() -> str:
     }
 	    @media (max-width: 900px) {
 	      header, .hero-status { grid-template-columns: 1fr; }
-	      form { grid-template-columns: 1fr 96px; }
-	      form .domain-field { grid-column: span 2; }
+	      form { grid-template-columns: 1fr 170px; }
+	      form .domain-field { grid-column: auto; }
+	      .subscription-cta-row { grid-template-columns: 1fr; }
 	      .span-4, .span-5, .span-6, .span-7, .span-8 { grid-column: span 12; }
 	      .about-page { grid-template-columns: 1fr; }
 	      .about-intro { grid-column: auto; }
@@ -1030,15 +1131,34 @@ def render_frontend() -> str:
           <input id="host" name="host" placeholder="example.ru" autocomplete="off" autofocus>
         </div>
         <div>
-          <label for="port">Порт</label>
-          <input id="port" name="port" inputmode="numeric" value="443">
-        </div>
-        <div>
           <label>&nbsp;</label>
           <button id="submit" type="submit">Проверить</button>
         </div>
+        <div class="subscription-cta-row">
+          <button id="open-subscribe-free" type="button" class="secondary">Базовый мониторинг</button>
+          <button id="open-subscribe-support" type="button" class="secondary">TLS Audit Pro</button>
+        </div>
       </form>
     </header>
+    <div id="subscribe-box" class="sub-dialog hidden">
+      <h2 id="sub-title" style="margin-bottom:8px">Подписка на мониторинг домена</h2>
+      <p id="sub-mode-note" class="sub-note">Отправим отчёт на email. Бесплатно: один домен на один email.</p>
+      <form id="subscribe-form">
+        <div class="domain-field">
+          <label for="sub-host">Домен</label>
+          <input id="sub-host" name="sub-host" placeholder="example.ru" autocomplete="off">
+        </div>
+        <div>
+          <label for="sub-email">Email</label>
+          <input id="sub-email" name="sub-email" placeholder="admin@example.ru" autocomplete="off">
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button id="sub-submit" type="submit">Включить</button>
+        </div>
+      </form>
+      <div id="sub-msg" class="muted" style="margin-top:10px"></div>
+    </div>
 
     <div id="progress" class="progress-wrap hidden" data-testid="progress">
       <div class="progress-row">
@@ -1050,34 +1170,11 @@ def render_frontend() -> str:
 
 	    <div id="error" class="error hidden" data-testid="error"></div>
 	    <div id="empty" class="empty">Готов к первой проверке.</div>
-      <section id="monitoring-panel">
-        <h2>Мониторинг доменов</h2>
-        <form id="monitor-form">
-          <div class="domain-field">
-            <label for="monitor-host">Домен</label>
-            <input id="monitor-host" name="monitor-host" placeholder="example.ru" autocomplete="off">
-          </div>
-          <div>
-            <label for="monitor-port">Порт</label>
-            <input id="monitor-port" name="monitor-port" inputmode="numeric" value="443">
-          </div>
-          <div>
-            <label for="monitor-interval">Интервал (сек.)</label>
-            <input id="monitor-interval" name="monitor-interval" inputmode="numeric" value="86400">
-          </div>
-          <div>
-            <label>&nbsp;</label>
-            <button id="monitor-submit" type="submit">Добавить</button>
-          </div>
-        </form>
-        <div id="monitor-msg" class="muted" style="margin-top:10px"></div>
-        <div id="monitor-list" style="margin-top:12px"></div>
-      </section>
 		    <div id="report" class="hidden" data-testid="report"></div>
 		    <div id="about-page" class="about-page" data-testid="about-page">
 		      <div class="about-intro">
 		        <h2>Что это за сервис</h2>
-		        <p>TLS Audit проверяет публичную HTTPS/TLS-конфигурацию сайта и собирает короткий отчёт: оценка, причины, риски и готовые правки для администратора.</p>
+		        <p>TLS Audit проверяет публичную HTTPS/TLS-конфигурацию сайта, формирует понятный отчёт с оценкой и помогает поддерживать безопасность через подписки на мониторинг.</p>
 		      </div>
 	      <section>
 	        <h2>Проверяем</h2>
@@ -1085,7 +1182,17 @@ def render_frontend() -> str:
 	          <li>сертификат, SAN и цепочку доверия;</li>
 	          <li>TLS-версии и cipher suites;</li>
 		          <li>HSTS, OCSP stapling и дополнительные проверки уязвимостей;</li>
-	          <li>российскую TLS/ГОСТ-совместимость отдельным блоком.</li>
+	          <li>российскую TLS/ГОСТ-совместимость отдельным блоком;</li>
+	          <li>изменения в конфигурации между проверками (в режиме мониторинга).</li>
+	        </ul>
+	      </section>
+	      <section>
+	        <h2>Уже работает</h2>
+	        <ul>
+	          <li>разовая проверка домена с подробным отчётом и рекомендациями;</li>
+	          <li>базовая подписка: отчёт на email для одного домена;</li>
+	          <li>режим Pro: расширенные уведомления об изменениях конфигурации;</li>
+	          <li>история снимков мониторинга и сравнение с прошлым состоянием.</li>
 	        </ul>
 	      </section>
 	      <section>
@@ -1094,7 +1201,17 @@ def render_frontend() -> str:
 	          <li>A+ означает сильную публичную TLS-конфигурацию;</li>
 	          <li>D — нижняя публичная оценка для серьёзных проблем;</li>
 	          <li>hardening не смешивается с критичными рисками;</li>
-	          <li>российская совместимость не улучшает глобальную оценку.</li>
+	          <li>российская совместимость не улучшает глобальную оценку;</li>
+	          <li>в мониторинге видно динамику: стало лучше, хуже или без изменений.</li>
+	        </ul>
+	      </section>
+	      <section>
+	        <h2>Дальше по плану</h2>
+	        <ul>
+	          <li>дальнейшее развитие расширенного режима и алертов;</li>
+	          <li>более частые проверки и отдельные аварийные уведомления;</li>
+	          <li>расширенные отчёты по трендам за период;</li>
+	          <li>каналы уведомлений помимо email.</li>
 	        </ul>
 	      </section>
 	      <section>
@@ -1102,9 +1219,18 @@ def render_frontend() -> str:
 	        <ul>
 	          <li>сервис предназначен для своих доменов и разрешённых проверок;</li>
 	          <li>приватные адреса и служебные сети блокируются;</li>
+	          <li>бесплатный мониторинг ограничен одним доменом на email;</li>
 	          <li>отчёт помогает с конфигурацией, но не заменяет полноценный аудит.</li>
 	        </ul>
-		      </section>
+	      </section>
+	      <section>
+	        <h2>Мониторинг</h2>
+	        <ul>
+	          <li>экономит время: не нужно запускать проверку вручную;</li>
+	          <li>помогает не пропустить регресс после изменений на сервере;</li>
+	          <li>даёт регулярные отчёты на email и историю состояния домена.</li>
+	        </ul>
+	      </section>
 		    </div>
     <footer class="site-footer">
       <span>TLS Audit проверяет только публичную HTTPS/TLS-конфигурацию. Контакт: {CONTACT_LINK}.</span>
@@ -1129,7 +1255,6 @@ def render_frontend() -> str:
   <script>
     const form = document.getElementById('check-form');
     const hostInput = document.getElementById('host');
-    const portInput = document.getElementById('port');
     const submitButton = document.getElementById('submit');
     const progress = document.getElementById('progress');
     const progressStage = document.getElementById('progress-stage');
@@ -1138,13 +1263,17 @@ def render_frontend() -> str:
 	    const errorBox = document.getElementById('error');
 	    const empty = document.getElementById('empty');
 	    const reportBox = document.getElementById('report');
-    const monitorForm = document.getElementById('monitor-form');
-    const monitorHostInput = document.getElementById('monitor-host');
-    const monitorPortInput = document.getElementById('monitor-port');
-    const monitorIntervalInput = document.getElementById('monitor-interval');
-    const monitorSubmitButton = document.getElementById('monitor-submit');
-    const monitorMsg = document.getElementById('monitor-msg');
-    const monitorList = document.getElementById('monitor-list');
+    const openSubscribeFreeButton = document.getElementById('open-subscribe-free');
+    const openSubscribeSupportButton = document.getElementById('open-subscribe-support');
+    const subscribeBox = document.getElementById('subscribe-box');
+    const subscribeForm = document.getElementById('subscribe-form');
+    const subHostInput = document.getElementById('sub-host');
+    const subEmailInput = document.getElementById('sub-email');
+    const subTitle = document.getElementById('sub-title');
+    const subModeNote = document.getElementById('sub-mode-note');
+    const subSubmitButton = document.getElementById('sub-submit');
+    const subMsg = document.getElementById('sub-msg');
+    let currentPlan = 'free';
 
     const severityOrder = {critical: 0, high: 1, medium: 2, low: 3, info: 4};
     const severityLabels = {
@@ -1157,12 +1286,29 @@ def render_frontend() -> str:
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      await startScan(hostInput.value, portInput.value);
+      await startScan(hostInput.value, 443);
     });
-    monitorForm.addEventListener('submit', async (event) => {
+    openSubscribeFreeButton.addEventListener('click', () => openSubscribe('free'));
+    openSubscribeSupportButton.addEventListener('click', () => openSubscribe('support'));
+    subscribeForm.addEventListener('submit', async (event) => {
       event.preventDefault();
-      await saveMonitoredDomain();
+      await subscribeWeekly();
     });
+
+    function openSubscribe(plan) {
+      subscribeBox.classList.remove('hidden');
+      setPlanMode(plan);
+    }
+
+    function setPlanMode(plan) {
+      currentPlan = (plan === 'support') ? 'support' : 'free';
+      const isSupport = currentPlan === 'support';
+      subTitle.textContent = isSupport ? 'Подписка TLS Audit Pro' : 'Подписка на базовый мониторинг';
+      subModeNote.textContent = isSupport
+        ? 'До 10 доменов на email. Развернутый weekly-отчёт, diff и алерты.'
+        : '1 домен на email. Краткий weekly-отчёт на почту.';
+      subSubmitButton.textContent = 'Включить';
+    }
 
 	    window.addEventListener('popstate', () => {
 	      const params = new URLSearchParams(location.search);
@@ -1188,7 +1334,6 @@ def render_frontend() -> str:
 	        hostInput.value = target;
 	      }
 	      showHomePage();
-        await loadMonitoredDomains();
 	    }
 
 	    async function startScan(host, port) {
@@ -1224,7 +1369,6 @@ def render_frontend() -> str:
       try {
         const status = await fetchJson('/api/check/' + encodeURIComponent(jobId));
         if (status.host) hostInput.value = status.host;
-        if (status.port) portInput.value = status.port;
         if (status.status === 'done') {
           setProgress(status);
           const report = await fetchJson('/api/report/' + encodeURIComponent(jobId));
@@ -1297,129 +1441,27 @@ def render_frontend() -> str:
 		      submitButton.disabled = false;
 		    }
 
-    async function saveMonitoredDomain() {
-      monitorMsg.textContent = '';
-      monitorSubmitButton.disabled = true;
+
+    async function subscribeWeekly() {
+      subMsg.textContent = '';
+      subSubmitButton.disabled = true;
       try {
         const payload = {
-          host: (monitorHostInput.value || '').trim(),
-          port: Number(monitorPortInput.value || 443),
-          scan_interval_seconds: Number(monitorIntervalInput.value || 86400),
-          enabled: true,
-          notes: ''
+          host: (subHostInput.value || '').trim(),
+          port: 443,
+          email: (subEmailInput.value || '').trim(),
+          plan: currentPlan
         };
-        if (!payload.host) throw new Error('Укажите домен для мониторинга.');
-        await fetchJson('/api/monitor/domains', {
+        const result = await fetchJson('/api/subscriptions/monitoring', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        monitorMsg.textContent = 'Домен добавлен в мониторинг.';
-        await loadMonitoredDomains();
+        subMsg.innerHTML = 'Подписка создана. Подтверждение: <a target="_blank" rel="noopener" href="' + escapeHtml(result.confirm_url) + '">ссылка</a>';
       } catch (error) {
-        monitorMsg.textContent = error.message || 'Не удалось сохранить домен.';
+        subMsg.textContent = error.message || 'Не удалось создать подписку.';
       } finally {
-        monitorSubmitButton.disabled = false;
-      }
-    }
-
-    async function loadMonitoredDomains() {
-      try {
-        const data = await fetchJson('/api/monitor/domains?limit=30');
-        const items = data.items || [];
-        if (!items.length) {
-          monitorList.innerHTML = '<p class="muted">Пока нет доменов в мониторинге.</p>';
-          return;
-        }
-        const rows = await Promise.all(items.map(async (item) => {
-          const events = await fetchJson('/api/monitor/domains/' + encodeURIComponent(String(item.id)) + '/events?limit=1');
-          const lastEvent = (events.items || [])[0];
-          return `
-            <tr>
-              <td>${escapeHtml(item.host)}:${escapeHtml(String(item.port || 443))}</td>
-              <td>${item.enabled ? 'вкл' : 'выкл'}</td>
-              <td>${escapeHtml(String(item.scan_interval_seconds || ''))}</td>
-              <td>${escapeHtml(item.next_scan_at || '—')}</td>
-              <td>${escapeHtml(lastEvent ? (lastEvent.title || lastEvent.event_type || '—') : '—')}</td>
-              <td>
-                <div class="monitor-actions">
-                <button type="button" class="monitor-btn" data-monitor-toggle="${escapeHtml(String(item.id))}">
-                  ${item.enabled ? 'выкл' : 'вкл'}
-                </button>
-                <button type="button" class="monitor-btn secondary" data-monitor-scan="${escapeHtml(String(item.id))}">
-                  сканировать
-                </button>
-                </div>
-              </td>
-            </tr>
-          `;
-        }));
-        monitorList.innerHTML = `
-          <table>
-            <thead>
-              <tr>
-                <th>Домен</th>
-                <th>Статус</th>
-                <th>Интервал</th>
-                <th>След. скан</th>
-                <th>Последнее событие</th>
-                <th>Действия</th>
-              </tr>
-            </thead>
-            <tbody>${rows.join('')}</tbody>
-          </table>
-        `;
-        monitorList.querySelectorAll('[data-monitor-toggle]').forEach((btn) => {
-          btn.addEventListener('click', async () => {
-            const id = btn.getAttribute('data-monitor-toggle');
-            const row = items.find((x) => String(x.id) === String(id));
-            if (!row) return;
-            await toggleMonitoredDomain(row.id, !row.enabled);
-          });
-        });
-        monitorList.querySelectorAll('[data-monitor-scan]').forEach((btn) => {
-          btn.addEventListener('click', async () => {
-            const id = btn.getAttribute('data-monitor-scan');
-            if (!id) return;
-            await runMonitoredScanNow(id);
-          });
-        });
-      } catch (error) {
-        monitorList.innerHTML = '<p class="muted">Не удалось загрузить список мониторинга.</p>';
-      }
-    }
-
-    async function toggleMonitoredDomain(domainId, enabled) {
-      monitorMsg.textContent = '';
-      try {
-        await fetchJson('/api/monitor/domains/' + encodeURIComponent(String(domainId)), {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled })
-        });
-        monitorMsg.textContent = enabled ? 'Мониторинг включен.' : 'Мониторинг отключен.';
-        await loadMonitoredDomains();
-      } catch (error) {
-        monitorMsg.textContent = error.message || 'Не удалось обновить статус домена.';
-      }
-    }
-
-    async function runMonitoredScanNow(domainId) {
-      monitorMsg.textContent = '';
-      try {
-        const result = await fetchJson('/api/monitor/domains/' + encodeURIComponent(String(domainId)) + '/scan-now', {
-          method: 'POST'
-        });
-        if (result.status === 'queued' && result.job_id) {
-          monitorMsg.textContent = 'Проверка поставлена в очередь.';
-          history.pushState({}, '', '/scan?job=' + encodeURIComponent(result.job_id));
-          await loadJob(result.job_id);
-          return;
-        }
-        monitorMsg.textContent = result.detail || result.reason || 'Сканирование пропущено.';
-        await loadMonitoredDomains();
-      } catch (error) {
-        monitorMsg.textContent = error.message || 'Не удалось запустить проверку.';
+        subSubmitButton.disabled = false;
       }
     }
 

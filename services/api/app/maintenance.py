@@ -49,6 +49,10 @@ def due_monitored_domains(limit: int) -> list[dict[str, object]]:
     return [domain.__dict__ for domain in monitoring_store.due_domains(limit=limit)]
 
 
+def cleanup_monitoring_history(retention_days: int) -> dict[str, int]:
+    return monitoring_store.cleanup_history(retention_days=retention_days)
+
+
 def schedule_monitored_domains(limit: int) -> dict[str, object]:
     result = schedule_due_scans(
         monitoring_store=monitoring_store,
@@ -101,6 +105,11 @@ def main() -> None:
         help="Enqueue due monitored domains for scanning.",
     )
     monitor_schedule.add_argument("--limit", type=int, default=50)
+    monitor_cleanup = subparsers.add_parser(
+        "monitor-cleanup",
+        help="Delete old monitoring snapshots and events.",
+    )
+    monitor_cleanup.add_argument("--retention-days", type=int, default=365)
 
     args = parser.parse_args()
     if args.command == "cleanup":
@@ -123,6 +132,9 @@ def main() -> None:
         print(json.dumps(result, ensure_ascii=False, sort_keys=True, default=str))
     elif args.command == "monitor-schedule":
         result = schedule_monitored_domains(limit=args.limit)
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True, default=str))
+    elif args.command == "monitor-cleanup":
+        result = cleanup_monitoring_history(retention_days=args.retention_days)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True, default=str))
 
 

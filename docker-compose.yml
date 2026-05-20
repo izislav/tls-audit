@@ -25,7 +25,11 @@ services:
       YANDEX_VERIFICATION_CONTENT: ${YANDEX_VERIFICATION_CONTENT:-}
       GOOGLE_VERIFICATION_FILE: ${GOOGLE_VERIFICATION_FILE:-}
       GOOGLE_VERIFICATION_CONTENT: ${GOOGLE_VERIFICATION_CONTENT:-}
-      CONTACT_EMAIL: ${CONTACT_EMAIL:-ya.izis@yandex.ru}
+      CONTACT_EMAIL: ${CONTACT_EMAIL:-info@tlsaudit.ru}
+      ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-tls-audit@localhost}
+      SMTP_URL: ${SMTP_URL:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
     ports:
       - "${API_BIND_HOST:-0.0.0.0}:8000:8000"
     depends_on:
@@ -52,11 +56,16 @@ services:
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       DATABASE_URL: ${DATABASE_URL:-postgresql://tls_audit:tls_audit@postgres:5432/tls_audit}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://tlsaudit.ru}
       MAX_SCAN_SECONDS: ${MAX_SCAN_SECONDS:-45}
       TARGET_COOLDOWN_SECONDS: ${TARGET_COOLDOWN_SECONDS:-30}
       ACTIVE_SCAN_TTL_SECONDS: ${ACTIVE_SCAN_TTL_SECONDS:-900}
       TESTSSL_TIMEOUT_SECONDS: ${TESTSSL_TIMEOUT_SECONDS:-45}
       TESTSSL_OPENSSL_TIMEOUT: ${TESTSSL_OPENSSL_TIMEOUT:-5}
+      ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-tls-audit@localhost}
+      SMTP_URL: ${SMTP_URL:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
     depends_on:
       redis:
         condition: service_healthy
@@ -87,6 +96,11 @@ services:
       ACTIVE_SCAN_TTL_SECONDS: ${ACTIVE_SCAN_TTL_SECONDS:-900}
       SCHEDULER_POLL_SECONDS: ${SCHEDULER_POLL_SECONDS:-300}
       SCHEDULER_BATCH_SIZE: ${SCHEDULER_BATCH_SIZE:-50}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://tlsaudit.ru}
+      ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-tls-audit@localhost}
+      SMTP_URL: ${SMTP_URL:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
     depends_on:
       redis:
         condition: service_healthy

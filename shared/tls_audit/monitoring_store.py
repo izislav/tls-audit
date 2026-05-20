@@ -92,6 +92,9 @@ class NullMonitoringStore:
     def list_events(self, monitored_domain_id: int, limit: int = 50) -> List[Dict[str, object]]:
         return []
 
+    def cleanup_history(self, retention_days: int = 365) -> Dict[str, int]:
+        return {"deleted_snapshots": 0, "deleted_events": 0}
+
 
 class InMemoryMonitoringStore(NullMonitoringStore):
     enabled = True
@@ -240,6 +243,26 @@ class InMemoryMonitoringStore(NullMonitoringStore):
             event for event in self.events if event["monitored_domain_id"] == monitored_domain_id
         ]
         return list(reversed(items))[: max(1, limit)]
+
+    def cleanup_history(self, retention_days: int = 365) -> Dict[str, int]:
+        cutoff = utcnow() - timedelta(days=max(1, int(retention_days)))
+        before_snapshots = len(self.snapshots)
+        self.snapshots = {
+            key: item
+            for key, item in self.snapshots.items()
+            if not item.created_at or item.created_at >= cutoff
+        }
+        kept_snapshot_ids = set(self.snapshots.keys())
+        before_events = len(self.events)
+        self.events = [
+            item
+            for item in self.events
+            if item.get("snapshot_id") is None or item.get("snapshot_id") in kept_snapshot_ids
+        ]
+        return {
+            "deleted_snapshots": before_snapshots - len(self.snapshots),
+            "deleted_events": before_events - len(self.events),
+        }
 
 
 class PostgresMonitoringStore(NullMonitoringStore):
@@ -511,6 +534,27 @@ class PostgresMonitoringStore(NullMonitoringStore):
                 (int(monitored_domain_id), max(1, int(limit))),
             ).fetchall()
         return [event_from_row(row) for row in rows]
+
+    def cleanup_history(self, retention_days: int = 365) -> Dict[str, int]:
+        with self.connect() as conn:
+            deleted_events = conn.execute(
+                """
+                DELETE FROM monitoring_events
+                WHERE created_at < now() - (%(days)s * interval '1 day')
+                """,
+                {"days": max(1, int(retention_days))},
+            ).rowcount
+            deleted_snapshots = conn.execute(
+                """
+                DELETE FROM monitoring_snapshots
+                WHERE created_at < now() - (%(days)s * interval '1 day')
+                """,
+                {"days": max(1, int(retention_days))},
+            ).rowcount
+        return {
+            "deleted_snapshots": int(deleted_snapshots or 0),
+            "deleted_events": int(deleted_events or 0),
+        }
 
     def connect(self):
         import psycopg
