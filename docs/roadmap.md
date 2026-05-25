@@ -1,121 +1,77 @@
-# Roadmap
+# TLS Audit Roadmap (v0.2)
 
-## Phase 0 - Product Shape
+Актуальная дорожная карта продукта. Используем как главный ориентир по
+приоритетам разработки.
 
-Goal: prove that the service is useful before building the full laboratory.
+## Stage 1 - Public Trust
 
-Deliverables:
+Цель: сервис должен выглядеть как надежная диагностика, а не как "черный ящик"
+с собственной оценкой.
 
-- one public hostname input, default port 443;
-- Russian report page with grade, certificate summary, TLS versions, HTTP header notes;
-- explicit disclaimer that the MVP grade is not an SSL Labs-compatible rating;
-- private result URL by default, optional public sharing later.
+Сделано:
 
-Key references:
+- публичная страница методики и версия методики;
+- явный дисклеймер "не замена SSL Labs";
+- страница сравнения `TLS Audit vs SSL Labs`;
+- changelog методики;
+- sample reports;
+- evidence/provenance в отчетах;
+- фиксация версии сканера в данных отчета.
 
-- SSL Labs server test and rating guide: https://www.ssllabs.com/ssltest/ and https://www.ssllabs.com/projects/rating-guide/
-- OWASP TLS Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Security_Cheat_Sheet.html
-- MDN TLS configuration guide: https://developer.mozilla.org/en-US/docs/Web/Security/Practical_implementation_guides/TLS
-- testssl.sh project: https://github.com/testssl/testssl.sh
+Доделываем:
 
-## Phase 1 - MVP Scanner
+- улучшение читаемости evidence на UI;
+- финальная структура "факт -> источник -> рекомендация";
+- стабильные публичные ссылки на отчеты.
 
-Checks:
+## Stage 2 - Pro as Product
 
-- DNS resolution with private/reserved network blocking;
-- certificate validity, hostname match, issuer, SAN, expiration;
-- certificate chain extraction where possible;
-- TLS 1.0, 1.1, 1.2, 1.3 handshake probes;
-- negotiated cipher per supported TLS version;
-- HSTS presence and basic strength;
-- simple public grade from A+ to D.
+Цель: превратить подписку из "кнопки" в полноценный рабочий сценарий мониторинга.
 
-Tech:
+Сделано:
 
-- Python scanner core;
-- sync local web UI for early demos;
-- JSON result format stable enough to store.
+- разделение тарифной логики `free/pro`;
+- подтверждение email;
+- приватный owner-token доступ к управлению подпиской;
+- `run-now` для подписки;
+- ownership verification (`dns_txt`, `http_file`);
+- ограничение функций расширенного режима проверкой владения доменом.
 
-## Phase 2 - Real Web Service
+Доделываем:
 
-Components:
+- UX потока подтверждения владения;
+- стабильная отправка free/pro email-отчетов;
+- финальная шлифовка форматирования free vs pro отчета.
 
-- API service: FastAPI or similar;
-- worker queue: Redis + RQ/Celery/Arq;
-- database: PostgreSQL;
-- scanner workers running in locked-down containers;
-- reverse proxy: Nginx/Caddy;
-- observability: structured logs, metrics, scan duration/error tracking.
+## Stage 3 - Differentiation
 
-Features:
+Цель: отличаться не "красивой буквой", а операционной пользой.
 
-- asynchronous scans;
-- queue position and progress;
-- result pages;
-- scan history for logged-in users;
-- per-IP and per-domain rate limits;
-- admin abuse controls.
+База уже есть:
 
-## Phase 3 - Deep TLS Analysis
+- русские рекомендации по исправлению;
+- готовые конфиги (Nginx/Apache/Caddy/HAProxy);
+- отдельный блок российской совместимости;
+- исторические снимки и события мониторинга.
 
-Checks:
+Дальше:
 
-- full cipher suite enumeration by protocol;
-- key exchange strength;
-- forward secrecy;
-- server cipher preference;
-- OCSP stapling and revocation where reliable;
-- CAA, CT/SCT visibility;
-- weak algorithms: RC4, 3DES/SWEET32, CBC-only configs, NULL/EXPORT/anonymous suites;
-- compression and renegotiation issues;
-- vulnerability probes such as Heartbleed/ROBOT only after sandboxing and legal review.
+- diff "что изменилось между проверками" в письмах и API;
+- executive + technical формат отчетов;
+- webhook/API интеграции для агентств и хостеров.
 
-Implementation options:
+## Priority Track
 
-- embed a native scanner library where possible;
-- run `testssl.sh` in a container worker and parse JSON output;
-- keep our own normalized finding model and grading policy.
+Текущий фокус:
 
-## Phase 4 - Grading Policy
+1. завершить надежную доставку и dedupe уведомлений;
+2. стабилизировать мониторинг при сетевых ошибках/недоступности цели;
+3. финализировать и синхронизировать документацию;
+4. подготовить чистый релиз-контур (`local -> git -> vps`).
 
-Build a transparent Russian grading guide.
+Следующий фокус:
 
-Principles:
-
-- do not claim SSL Labs equivalence until methodology is validated;
-- keep an internal scoring guide and expose only clear user-facing reasons in reports;
-- separate certificate trust failures from configuration weaknesses;
-- include remediation examples for Nginx, Apache, HAProxy, Caddy, and common CDN panels;
-- version the grading policy, because TLS recommendations change.
-
-Initial rough grade semantics:
-
-- `A+`: valid certificate, TLS 1.3 and 1.2, no legacy TLS, strong HSTS;
-- `A`: strong modern configuration with minor hardening gaps;
-- `B`: acceptable but has legacy compatibility or missing hardening;
-- `C/D`: weak protocols, weak algorithms, or incomplete deployment;
-- `D`: worst public grade for broken TLS, severe cryptographic weakness,
-  certificate trust failure, hostname mismatch, or no usable secure endpoint.
-
-## Phase 5 - Public Launch
-
-Before public traffic:
-
-- domain and branding;
-- abuse policy and robots guidance;
-- privacy policy;
-- Terms of Use for scanning only systems the user owns or is authorized to test;
-- capacity limits for the VPS;
-- backups and monitoring;
-- responsible disclosure contact.
-
-## Phase 6 - Differentiation For RU Market
-
-Ideas:
-
-- Russian-language remediation text;
-- presets for Russian hosting panels and popular VPS stacks;
-- exportable PDF report for clients;
-- API for CI/CD checks;
-- checks for common misconfigurations in `.ru`, `.рф`, corporate, and government-facing deployments;
-- public education pages with current TLS baseline examples.
+1. экспорты (CSV/JSON/PDF);
+2. платежный провайдер и реальная активация Pro;
+3. при необходимости легкая модель аккаунтов;
+4. публичные API/webhook-контракты.

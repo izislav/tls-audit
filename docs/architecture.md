@@ -1,83 +1,101 @@
-# Architecture
+# TLS Audit Architecture (v0.2)
 
-## MVP
-
-The current MVP keeps everything in one process so the first version is easy to
-understand:
-
-```text
-Browser/CLI -> tls_guard.scanner -> target HTTPS server
-```
-
-This is fine for local development, but not safe enough for public Internet use.
-
-## Production Shape
+## Runtime Shape
 
 ```text
 Browser
   |
   v
-Web/API service
+FastAPI (web + API)
+  |
+  +--> Redis queue + job state
+  |
+  +--> PostgreSQL archive
   |
   v
-Job queue
+Scanner worker (baseline probes + testssl.sh)
   |
   v
-Isolated scanner workers
-  |
-  v
-Public target hosts
-
-Database stores scan metadata and normalized results.
-Object storage can hold raw scanner JSON artifacts.
+Public target hosts only
 ```
 
-## Boundaries
+Main components:
 
-Web/API service:
+- `services/api` for public pages, API endpoints, and monitoring control flow;
+- `services/worker` for active scans and report generation;
+- `services/scheduler` for periodic monitoring runs;
+- `shared/tls_audit/*` for domain logic (validation, scoring, monitoring, stores).
 
-- validates input;
-- rejects private and reserved targets;
-- creates scan jobs;
-- returns progress and reports;
-- never runs active scanner probes directly.
+## Trust Zones
 
-Scanner worker:
+Public scan zone:
 
-- runs with low privileges;
-- has no access to cloud metadata endpoints or internal networks;
-- uses hard timeouts;
-- produces normalized JSON;
-- can run heavier tools such as `testssl.sh` inside a container.
+- one-off scan endpoints (`/api/check`, `/api/report/{id}`);
+- no ownership requirement;
+- strict target validation and abuse controls.
 
-Database:
+Private monitoring zone:
 
-- stores target, timestamps, grade, findings, and raw result pointers;
-- avoids publishing hostnames/results unless the user asks to share them;
-- supports expiration/deletion policies.
+- subscription state and monitoring control endpoints;
+- owner token required for access;
+- `pro` weekly flow gated by ownership verification.
 
-## Security Controls
+Internal ops zone:
 
-Input validation:
+- `/api/monitor/domains*` endpoints;
+- admin token required (`MONITORING_ADMIN_TOKEN`);
+- not intended for public browser use.
 
-- accept hostname plus optional port;
-- reject schemes, paths, credentials, wildcards, and control characters;
-- resolve DNS server-side;
-- block private, loopback, link-local, multicast, reserved, and metadata ranges;
-- re-check resolved IPs inside the worker immediately before connecting.
+## Data Model (Operational)
 
-Abuse controls:
+Core archive:
 
-- rate limits by requester IP, target host, and target IP/ASN;
-- per-scan connection and time limits;
-- queue concurrency caps;
-- denylist for sensitive networks;
-- audit log for abuse investigations.
+- `scans`
+- `reports`
+- `findings`
 
-Deployment:
+Monitoring:
 
-- run scanner workers in containers or separate VMs;
-- deny outbound access to internal ranges at firewall level;
-- keep OpenSSL and scanner tools updated;
-- expose only the web/API port publicly.
+- `monitor_subscriptions`
+- `monitored_domains`
+- `monitoring_snapshots`
+- `monitoring_events`
+- `subscription_report_deliveries`
+- `subscription_alert_deliveries`
 
+Billing/account skeleton:
+
+- `billing_accounts`
+
+`monitor_subscriptions` stores ownership state for `pro`:
+
+- `ownership_method`
+- `ownership_token`
+- `ownership_verified_at`
+
+## Security Model
+
+Target safety:
+
+- hostname and port validation;
+- deny private/loopback/link-local/metadata ranges;
+- DNS resolved in API and revalidated in worker;
+- mixed public/private DNS answers rejected.
+
+Abuse protection:
+
+- requester rate limit;
+- per-target active lock + cooldown;
+- queue depth guard;
+- denylist controls (`BLOCKED_CLIENT_IPS`, `BLOCKED_TARGETS`).
+
+Execution constraints:
+
+- scanner timeouts for baseline and deep checks;
+- containerized worker;
+- optional host firewall egress restrictions.
+
+Monitoring privacy:
+
+- subscription access by signed owner token, not plain email lookup;
+- `pro` requires ownership verification before recurring private reports.

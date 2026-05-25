@@ -1,73 +1,62 @@
-# TLS Audit Pro
+# TLS Audit Pro Plan (v0.2)
 
-This document fixes the product definition of the paid `Pro` tier.
+Документ фиксирует, чем Pro отличается от free, и что нужно довести до
+production-состояния.
 
-## Positioning
+## Позиционирование
 
-`Pro` is not a donation and not a symbolic "support project" label.
-`Pro` is a paid operational tier for users who need continuous monitoring,
-change visibility, and actionable alerts across multiple domains.
+`Pro` — это не "донат", а рабочий режим постоянного контроля TLS-состояния:
+несколько доменов, diff, алерты и расширенный отчет по расписанию.
 
-## Price
+## Тарифная рамка (рабочая гипотеза)
 
-- `$10 / month`
-- up to `10` domains per email
+- стоимость: `$10 / month`;
+- лимит: до `10` доменов на владельца;
+- free: `1` домен, weekly отчет.
 
 ## Free vs Pro
 
 ### Free
 
-- `1` domain per email
-- regular email report
-- simple monitoring flow
-- no paid-only alert pack
+- один домен;
+- weekly email-отчет;
+- базовые уведомления в рамках мониторинга;
+- без расширенного набора алертов.
 
 ### Pro
 
-- up to `10` domains per email
-- expanded email report
-- change tracking between scans
-- alert flow for important regressions
-- domain list with statuses
-- manual run-now action
-- higher-value monitoring workflow intended for ongoing operational use
+- до 10 доменов;
+- расширенный weekly отчет;
+- diff с предыдущим сканом;
+- алерты о деградации и критических изменениях;
+- единый owner-контур управления.
 
-## Pro Features
+## Минимальный рабочий Pro (MVP Pro)
 
-The minimum practical Pro feature set is:
+1. подтверждение email;
+2. подтверждение владения доменом (DNS TXT / HTTP file);
+3. список доменов владельца;
+4. run-now;
+5. weekly расширенный отчет;
+6. алерт при снижении оценки;
+7. алерт по сроку сертификата;
+8. алерт по новым critical finding;
+9. история snapshot/event;
+10. лимиты по плану (1 vs 10).
 
-1. domain list for the owner email;
-2. per-domain status and last/next activity;
-3. run-now action;
-4. diff against previous scan;
-5. alert on grade degradation;
-6. alert on certificate expiry window;
-7. alert on newly added critical findings;
-8. expanded email report;
-9. trend/history view;
-10. monthly billing lifecycle.
+## Что уже есть
 
-## Delivery Order
+- free/pro разделение в логике подписки;
+- email confirmation;
+- owner-token доступ;
+- ownership verification API;
+- поддержка multi-domain логики в данных;
+- шаблоны free и pro email-отчетов.
 
-1. domain list and ownership flow;
-2. alert rules;
-3. trend/history UI;
-4. billing provider integration;
-5. production rollout.
+## Что еще доделать до реального запуска Pro
 
-## Current State
-
-Already present:
-
-- `free` vs `Pro` split in product language;
-- `Pro` billing/account lifecycle skeleton;
-- `Pro` gating for support-plan subscriptions;
-- expanded `Pro` email format;
-- `run-now` for subscriptions.
-
-Missing before production billing:
-
-- visible domain list for `Pro`;
-- real alert pack;
-- real payment provider;
-- webhook-driven activation/cancel flow.
+1. надежные правила dedupe для алертов и weekly писем;
+2. четкий порог критичности событий для алертов;
+3. экспорт отчета (CSV/JSON, позже PDF);
+4. платежная интеграция и активация плана через провайдера;
+5. UX-страница статуса подписки и управления доменами.

@@ -1,30 +1,33 @@
-# Russian TLS / GOST Compatibility
+# Russian TLS / GOST Compatibility (v0.2)
 
-This block is intentionally separate from the global TLS grade.
+Этот блок намеренно независим от глобальной оценки TLS.
 
-Global TLS security answers:
+## Глобальная безопасность отвечает
 
-- Is the site safe and trusted in common international browsers?
-- Does it use modern TLS protocols and cipher suites?
-- Is the certificate chain valid for the public WebPKI?
+- доверен ли сайт в обычных браузерах;
+- современны ли протоколы и cipher suites;
+- корректна ли публичная WebPKI-цепочка.
 
-Russian TLS compatibility answers:
+## Российская совместимость отвечает
 
-- Does the certificate chain match a Russian trust list?
-- Are GOST OIDs present in certificate signatures or public keys?
-- Is there evidence of GOST TLS support?
-- Is the Russian trust list fresh enough to rely on?
+- есть ли совпадение с российским trust list;
+- обнаружены ли ГОСТ OID в сертификате/цепочке;
+- есть ли признаки ГОСТ TLS-поддержки;
+- актуален ли локальный список доверия.
 
-The Russian block must not automatically improve `A` or `A+`. A site can be
-compatible with a Russian trust environment and still fail global browser trust,
-or be globally strong and not provide GOST TLS. These are different conclusions.
+## Принцип оценки
 
-Initial data lives in `data/russian_trust/roots.sample.json`. It is a placeholder,
-not a production trust source. Production needs:
+Российская совместимость не поднимает автоматически `A/A+` и не должна скрывать
+проблемы глобальной TLS-безопасности. Это отдельное диагностическое измерение.
 
-- official source URL;
-- update command;
-- SHA-256 fingerprints;
-- update timestamp;
-- stale-list warning when the data is old.
+## Источник данных
 
+Текущий шаблон: `data/russian_trust/roots.sample.json`.
+
+Это стартовая заготовка. Для production нужен управляемый контур:
+
+1. документированный источник обновлений;
+2. команда обновления trust list;
+3. хранение fingerprints;
+4. дата последнего обновления;
+5. предупреждение о "устаревшем списке".

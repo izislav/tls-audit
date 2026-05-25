@@ -1,7 +1,7 @@
-# TLS Audit VPS Deploy
+# TLS Audit VPS Deploy (v0.2)
 
-This is the first simple deployment path for one VPS with Docker Compose, Nginx,
-Redis, and PostgreSQL on the same host.
+Актуальный путь деплоя для `v0.2` на одном VPS: Docker Compose + Nginx + Redis +
+PostgreSQL.
 
 ## 1. Prepare The VPS
 
@@ -234,6 +234,13 @@ curl -s -X POST http://127.0.0.1:8000/api/check \
 
 Open the returned `/scan?job=...` page through the public domain and verify that
 progress and report rendering work.
+
+Additional v0.2 checks:
+
+- create free monitoring subscription and confirm by email token;
+- create pro subscription and verify ownership challenge endpoints;
+- trigger `run-now` and confirm report email delivery;
+- confirm no duplicate weekly delivery for the same scan.
 
 ## 10. Before Public Announcement
 

@@ -1,24 +1,44 @@
 # TLS Audit
 
-TLS Audit is a free Russian-language HTTPS/TLS assessment service inspired by
-SSL Labs. It accepts a public hostname, scans certificate/TLS/server settings,
-and produces a readable Russian report with a public grade from `A+` to `D`.
+TLS Audit is a Russian-language HTTPS/TLS diagnostics service.
+It scans a public hostname and builds a report with:
 
-The current MVP includes:
+- public grade (`A+` to `D`);
+- findings grouped by risk;
+- actionable configuration recommendations;
+- provenance/evidence for scanner conclusions.
+
+The service does not claim one-to-one SSL Labs equivalence.
+Current methodology version is `0.2`.
+
+## Current Product State
+
+Implemented:
 
 - FastAPI web/API service;
-- Redis-backed job queue and scan state;
-- PostgreSQL archive for scan/report/finding data;
-- worker scanner with baseline Python probes and `testssl.sh`;
-- SSRF/DNS rebinding protections;
-- Russian recommendations and config snippets;
-- Russian TLS/ГОСТ compatibility block;
-- public rate limits, per-target scan lock, queue guard, and retention cleanup.
+- Redis-backed async scan queue;
+- PostgreSQL archive for scans/reports/findings;
+- scanner worker with baseline Python probes and `testssl.sh`;
+- report provenance block (scanner sources, versions, scan metadata);
+- monitoring subscriptions (`free` and `pro` flow);
+- private subscription management by signed owner token;
+- ownership verification flow for `pro` subscriptions (DNS TXT or HTTP file challenge);
+- Russian TLS/GOCT compatibility block separated from global grade.
 
-## Local Docker Run
+Security controls:
+
+- SSRF and DNS rebinding protection;
+- private/local/service targets blocked;
+- requester rate limits and queue depth guard;
+- per-target active lock and cooldown;
+- scanner time limits.
+
+## Local Run
+
+Start stack:
 
 ```bash
-docker compose up --build -d
+docker-compose up --build -d
 curl -s http://127.0.0.1:8000/health
 ```
 
@@ -31,37 +51,36 @@ http://127.0.0.1:8000/
 Run tests:
 
 ```bash
-python3 -m unittest discover -s tests
+python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
-Cleanup archived reports:
+Maintenance commands:
 
 ```bash
-docker compose exec api python -m services.api.app.maintenance cleanup
-```
-
-Backup Postgres:
-
-```bash
+docker-compose exec api python -m services.api.app.maintenance cleanup
 bash deploy/scripts/backup-postgres.sh
 ```
 
-## API
+## Core API
+
+Public scan:
 
 - `POST /api/check` with `{"host":"example.ru","port":443}`
 - `GET /api/check/{id}`
 - `GET /api/report/{id}`
+- `GET /api/report/{id}/compare`
 
-## Deployment
+Monitoring subscriptions:
 
-See [deploy/DEPLOY.md](deploy/DEPLOY.md).
+- `POST /api/subscriptions/monitoring`
+- `GET /api/subscriptions/monitoring?token=...`
+- `GET /api/subscriptions/monitoring/events?token=...`
+- `POST /api/subscriptions/monitoring/{id}/run-now?token=...`
+- `POST /api/subscriptions/monitoring/{id}/ownership/challenge?token=...`
+- `POST /api/subscriptions/monitoring/{id}/ownership/verify?token=...`
 
-## Safety Rules
+## Documentation
 
-The service is designed to scan only public Internet hosts by default. It rejects
-localhost/private/link-local/reserved/metadata addresses, revalidates DNS in the
-worker, rate-limits requesters, blocks parallel scans for the same target, and
-uses scanner timeouts.
-
-The MVP is not a claim of SSL Labs equivalence. The scoring policy is local and
-can be revised later without changing the scanner architecture.
+- Deploy: [DEPLOY.md](/Users/urij/Documents/New project/deploy/DEPLOY.md)
+- Work plan `0.2`: [work-plan.md](/Users/urij/Documents/New project/docs/work-plan.md)
+- Roadmap: [roadmap.md](/Users/urij/Documents/New project/docs/roadmap.md)
