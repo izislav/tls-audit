@@ -208,6 +208,19 @@ def send_subscription_report(
     plan = str(job.get("subscription_plan") or "free").strip().lower()
     if not subscription_id or not email:
         return
+    job_id = str(job.get("id") or "")
+    if not job_id:
+        return
+    if not subscription_store.should_send_report(subscription_id, job_id):
+        log_event(
+            logger,
+            "subscription_report_email_skipped",
+            subscription_id=subscription_id,
+            email=email,
+            reason="duplicate_scan_delivery",
+            scan_id=job_id,
+        )
+        return
     smtp_url = os.getenv("SMTP_URL", "").strip()
     if not smtp_url:
         log_event(
@@ -220,7 +233,6 @@ def send_subscription_report(
         return
     host = str(job.get("host") or "")
     port = int(job.get("port") or 443)
-    job_id = str(job.get("id") or "")
     public_base_url = os.getenv("PUBLIC_BASE_URL", "https://tlsaudit.ru").strip().rstrip("/")
     report_link = f"{public_base_url or 'https://tlsaudit.ru'}/scan?job={job_id}"
     grade = str(report.get("grade") or "n/a")
@@ -279,6 +291,7 @@ def send_subscription_report(
             body=body,
         )
         if sent:
+            subscription_store.mark_report_sent(subscription_id, job_id)
             subscription_store.mark_sent(subscription_id)
     except Exception as exc:  # noqa: BLE001
         log_event(

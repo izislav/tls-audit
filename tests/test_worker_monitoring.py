@@ -97,7 +97,11 @@ class WorkerMonitoringTests(unittest.TestCase):
         )
         with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
             worker.subscription_store, "mark_sent"
-        ) as mark_sent, patch.dict(
+        ) as mark_sent, patch.object(
+            worker.subscription_store, "should_send_report", return_value=True
+        ), patch.object(
+            worker.subscription_store, "mark_report_sent"
+        ) as mark_report_sent, patch.dict(
             os.environ,
             {"SMTP_URL": "smtps://example:465", "PUBLIC_BASE_URL": "http://127.0.0.1:8000"},
             clear=False,
@@ -108,6 +112,7 @@ class WorkerMonitoringTests(unittest.TestCase):
         self.assertIn("баллы: -9", body)
         self.assertIn("новых проблем: 1, исправлено: 1", body)
         mark_sent.assert_called_once_with(7)
+        mark_report_sent.assert_called_once_with(7, "job-1")
 
     def test_send_subscription_report_free_plan_is_concise(self) -> None:
         job = {
@@ -122,6 +127,10 @@ class WorkerMonitoringTests(unittest.TestCase):
         diff = MonitoringDiff(grade_improved=True, score_delta=4)
         with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
             worker.subscription_store, "mark_sent"
+        ), patch.object(
+            worker.subscription_store, "should_send_report", return_value=True
+        ), patch.object(
+            worker.subscription_store, "mark_report_sent"
         ), patch.dict(
             os.environ,
             {"SMTP_URL": "smtps://example:465", "PUBLIC_BASE_URL": "http://127.0.0.1:8000"},
@@ -132,6 +141,32 @@ class WorkerMonitoringTests(unittest.TestCase):
         self.assertIn("базовый еженедельный отчёт", body)
         self.assertNotIn("Изменения с прошлого скана", body)
         self.assertNotIn("Главные замечания", body)
+
+    def test_send_subscription_report_skips_duplicate_scan(self) -> None:
+        job = {
+            "id": "job-dup",
+            "host": "example.ru",
+            "port": 443,
+            "subscription_id": 8,
+            "subscription_email": "admin@example.ru",
+            "subscription_plan": "free",
+        }
+        report = {"grade": "A", "score": 93, "summary": ["Стабильная конфигурация"], "findings": []}
+        with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
+            worker.subscription_store, "should_send_report", return_value=False
+        ), patch.object(
+            worker.subscription_store, "mark_report_sent"
+        ) as mark_report_sent, patch.object(
+            worker.subscription_store, "mark_sent"
+        ) as mark_sent, patch.dict(
+            os.environ,
+            {"SMTP_URL": "smtps://example:465", "PUBLIC_BASE_URL": "http://127.0.0.1:8000"},
+            clear=False,
+        ):
+            worker.send_subscription_report(job, report, None)
+        send_email.assert_not_called()
+        mark_report_sent.assert_not_called()
+        mark_sent.assert_not_called()
 
     def test_send_subscription_failure_report_marks_critical_delivery(self) -> None:
         job = {
