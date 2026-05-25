@@ -23,7 +23,9 @@ class Settings:
     yandex_verification_content: str = os.getenv("YANDEX_VERIFICATION_CONTENT", "").strip()
     google_verification_file: str = os.getenv("GOOGLE_VERIFICATION_FILE", "").strip()
     google_verification_content: str = os.getenv("GOOGLE_VERIFICATION_CONTENT", "").strip()
-    contact_email: str = os.getenv("CONTACT_EMAIL", "ya.izis@yandex.ru").strip()
+    contact_email: str = os.getenv("CONTACT_EMAIL", "info@tlsaudit.ru").strip()
+    monitoring_token_secret: str = os.getenv("MONITORING_TOKEN_SECRET", "").strip()
+    monitoring_admin_token: str = os.getenv("MONITORING_ADMIN_TOKEN", "").strip()
 
 
 settings = Settings()

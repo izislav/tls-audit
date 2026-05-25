@@ -51,6 +51,7 @@ def schedule_domain_scan(
     job_store,
     enqueue_scan_job: Callable[[Dict[str, object]], None],
     target_scan_guard: Optional[TargetScanGuard] = None,
+    payload_extra: Optional[Dict[str, object]] = None,
 ):
     try:
         target = validate_target(domain.host, domain.port, resolve=True)
@@ -78,6 +79,8 @@ def schedule_domain_scan(
         "trigger": "scheduled",
         "monitored_domain_id": domain.id,
     }
+    if payload_extra:
+        payload.update(payload_extra)
     try:
         enqueue_scan_job(payload)
     except Exception as exc:

@@ -63,6 +63,7 @@ class TestTestsslParser(unittest.TestCase):
         self.assertEqual(merged.chain["status"], "checked")
         self.assertTrue(any(item.code == "testssl_breach" for item in merged.findings))
         self.assertFalse(any(item.code == "testssl_poodle_ssl" for item in merged.findings))
+        self.assertTrue(any(item["id"] == "testssl" for item in merged.raw["provenance"]["sources"]))
         self.assertTrue(
             any(
                 item.recommendation.code == "breach_http_compression"
@@ -71,6 +72,11 @@ class TestTestsslParser(unittest.TestCase):
         )
         breach = next(item for item in merged.findings if item.code == "testssl_breach")
         self.assertIsNone(breach.grade_cap)
+        testssl_source = next(
+            item for item in merged.raw["provenance"]["sources"] if item["id"] == "testssl"
+        )
+        self.assertEqual(testssl_source["version"], "3.2.1")
+        self.assertEqual(testssl_source["target_ip"], "203.0.113.10")
         self.assertEqual(merged.score, 90)
         self.assertEqual(merged.grade, "A")
 
@@ -199,6 +205,10 @@ class TestTestsslParser(unittest.TestCase):
         merged = merge_testssl_result(report, {"enabled": False, "error": "missing"})
 
         self.assertEqual(merged.vulnerabilities["testssl_status"], "disabled")
+        testssl_source = next(
+            item for item in merged.raw["provenance"]["sources"] if item["id"] == "testssl"
+        )
+        self.assertEqual(testssl_source["status"], "disabled")
         self.assertEqual(merged.grade, "A+")
 
 

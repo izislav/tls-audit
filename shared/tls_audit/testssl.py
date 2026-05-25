@@ -144,12 +144,25 @@ def terminate_process_group(process: subprocess.Popen) -> str:
 
 def merge_testssl_result(report: Report, result: Dict[str, Any]) -> Report:
     report.raw["testssl"] = result
+    report.raw.setdefault("provenance", {}).setdefault("sources", [])
     if not result.get("enabled"):
         report.vulnerabilities = {
             **report.vulnerabilities,
             "testssl_status": "disabled",
             "testssl_error": result.get("error", ""),
         }
+        upsert_provenance_source(
+            report,
+            {
+                "id": "testssl",
+                "label": "testssl.sh",
+                "status": "disabled",
+                "version": "",
+                "scanned_at": "",
+                "duration_seconds": result.get("duration_seconds"),
+                "note": result.get("error", ""),
+            },
+        )
         return score_report(report)
 
     payload = result.get("json")
@@ -161,6 +174,19 @@ def merge_testssl_result(report: Report, result: Dict[str, Any]) -> Report:
             "testssl_error": result.get("error")
             or "Глубокая TLS-проверка не вернула результат.",
         }
+        upsert_provenance_source(
+            report,
+            {
+                "id": "testssl",
+                "label": "testssl.sh",
+                "status": "error",
+                "version": "",
+                "scanned_at": "",
+                "duration_seconds": result.get("duration_seconds"),
+                "note": result.get("error")
+                or "Глубокая TLS-проверка не вернула результат.",
+            },
+        )
         return score_report(report)
 
     protocol_items = scan.get("protocols") or []
@@ -179,9 +205,33 @@ def merge_testssl_result(report: Report, result: Dict[str, Any]) -> Report:
         "scan_time": payload.get("scanTime") if isinstance(payload, dict) else "",
         "target_ip": scan.get("ip"),
     }
+    upsert_provenance_source(
+        report,
+        {
+            "id": "testssl",
+            "label": "testssl.sh",
+            "status": "done",
+            "version": payload.get("version") if isinstance(payload, dict) else "",
+            "scanned_at": payload.get("scanTime") if isinstance(payload, dict) else "",
+            "duration_seconds": result.get("duration_seconds"),
+            "target_ip": scan.get("ip"),
+            "command": result.get("command", ""),
+        },
+    )
     report.findings.extend(findings_from_testssl(scan))
     report.russian_tls = analyze_russian_tls(report)
     return score_report(report)
+
+
+def upsert_provenance_source(report: Report, source: Dict[str, Any]) -> None:
+    provenance = report.raw.setdefault("provenance", {})
+    sources = provenance.setdefault("sources", [])
+    source_id = str(source.get("id") or "")
+    for index, existing in enumerate(sources):
+        if str(existing.get("id") or "") == source_id:
+            sources[index] = {**existing, **source}
+            return
+    sources.append(source)
 
 
 def first_scan_result(payload: Any) -> Optional[Dict[str, Any]]:

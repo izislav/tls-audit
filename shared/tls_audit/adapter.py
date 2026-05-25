@@ -1,5 +1,7 @@
+import ssl
 from typing import Any, Callable, Dict, List, Optional
 
+from tls_guard import __version__ as TLS_GUARD_VERSION
 from tls_guard.scanner import scan_host
 
 from .recommendations import (
@@ -54,7 +56,53 @@ def normalize_basic_result(raw: Dict[str, Any]) -> Report:
     report.hsts = raw.get("headers") or {}
     report.findings = convert_findings(raw.get("findings") or [])
     report.russian_tls = analyze_russian_tls(report)
+    report.raw["provenance"] = build_basic_provenance(raw)
     return score_report(report)
+
+
+def build_basic_provenance(raw: Dict[str, Any]) -> Dict[str, Any]:
+    scanned_at = str(raw.get("scanned_at") or "")
+    addresses = list(raw.get("addresses") or [])
+    return {
+        "report_version": "0.2",
+        "sources": [
+            {
+                "id": "basic_scanner",
+                "label": "Baseline scanner",
+                "status": "done",
+                "version": TLS_GUARD_VERSION,
+                "scanned_at": scanned_at,
+                "host": raw.get("host"),
+                "port": raw.get("port"),
+            },
+            {
+                "id": "dns_probe",
+                "label": "DNS probe",
+                "status": "done" if addresses else "no_data",
+                "version": "",
+                "scanned_at": scanned_at,
+                "host": raw.get("host"),
+                "port": raw.get("port"),
+                "addresses": addresses,
+            },
+            {
+                "id": "openssl",
+                "label": "OpenSSL / Python SSL probe",
+                "status": "done",
+                "version": ssl.OPENSSL_VERSION,
+                "scanned_at": scanned_at,
+            },
+            {
+                "id": "http_headers",
+                "label": "HTTP header probe",
+                "status": "done"
+                if not (raw.get("headers") or {}).get("error")
+                else "error",
+                "version": "",
+                "scanned_at": scanned_at,
+            },
+        ],
+    }
 
 
 def convert_findings(items: List[Dict[str, Any]]) -> List[Finding]:

@@ -96,7 +96,7 @@ def snapshot_from_report(
 def diff_snapshots(
     current: MonitoringSnapshot,
     previous: Optional[MonitoringSnapshot],
-    certificate_warning_days: int = 30,
+    certificate_warning_days: int = 20,
 ) -> MonitoringDiff:
     if previous is None:
         return MonitoringDiff(
@@ -221,8 +221,8 @@ def events_from_diff(diff: MonitoringDiff) -> List[MonitoringEvent]:
 def scan_failed_event(error: str) -> MonitoringEvent:
     return MonitoringEvent(
         event_type="scan_failed",
-        severity="high",
-        title="Мониторинговая проверка не завершилась",
+        severity="critical",
+        title="Сайт недоступен или TLS-проверка не завершилась",
         detail=error,
     )
 

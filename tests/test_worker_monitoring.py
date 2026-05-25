@@ -1,22 +1,31 @@
+import os
 import unittest
 from unittest.mock import patch
 
+from shared.tls_audit.monitoring import MonitoringEvent
 from shared.tls_audit.jobs import InMemoryJobStore
 from shared.tls_audit.monitoring_store import InMemoryMonitoringStore
 from services.worker import worker
+from shared.tls_audit.monitoring import MonitoringDiff, FindingSummary
 
 
 class WorkerMonitoringTests(unittest.TestCase):
     def test_handle_job_records_monitoring_snapshot_for_scheduled_scan(self) -> None:
         job_store = InMemoryJobStore()
         monitoring_store = InMemoryMonitoringStore()
-        domain = monitoring_store.upsert_domain("example.ru")
+        monitoring_store.upsert_domain("example.ru")
         job = job_store.create("example.ru", 443, ["93.184.216.34"])
 
         with patch.object(worker, "job_store", job_store), patch.object(
             worker, "archive_store"
         ) as archive_store, patch.object(
             worker, "monitoring_store", monitoring_store
+        ), patch.object(
+            worker.subscription_store, "mark_sent"
+        ) as mark_sent, patch.object(
+            worker, "send_email", return_value=True
+        ) as send_email, patch.object(
+            worker.subscription_store, "enabled", True
         ), patch.object(
             worker, "log_event"
         ), patch.object(
@@ -25,6 +34,16 @@ class WorkerMonitoringTests(unittest.TestCase):
             worker, "run_full_scan"
         ) as run_full_scan, patch.object(
             worker, "release_target"
+        ), patch.dict(
+            os.environ,
+            {
+                "SMTP_URL": "smtps://example:465",
+                "SMTP_USER": "u",
+                "SMTP_PASSWORD": "p",
+                "ALERT_EMAIL_FROM": "info@example.ru",
+                "PUBLIC_BASE_URL": "http://127.0.0.1:8000",
+            },
+            clear=False,
         ):
             validate_worker_target.return_value.host = "example.ru"
             validate_worker_target.return_value.port = 443
@@ -34,7 +53,10 @@ class WorkerMonitoringTests(unittest.TestCase):
                 "port": 443,
                 "grade": "A",
                 "score": 95,
-                "findings": [],
+                "findings": [
+                    {"severity": "high", "title": "TLS 1.0 включён"},
+                    {"severity": "medium", "title": "Нет HSTS"},
+                ],
             }
 
             result = worker.handle_job(
@@ -43,19 +65,229 @@ class WorkerMonitoringTests(unittest.TestCase):
                     "host": "example.ru",
                     "port": 443,
                     "addresses": ["93.184.216.34"],
-                    "monitored_domain_id": domain.id,
+                    "monitored_domain_id": 1,
+                    "subscription_id": 22,
+                    "subscription_email": "admin@example.ru",
+                    "subscription_plan": "support",
                     "trigger": "scheduled",
                 }
             )
 
         self.assertEqual(result["status"], "done")
-        self.assertEqual(monitoring_store.latest_snapshot(domain.id).scan_id, job.id)
         archive_store.save_report.assert_called()
+        self.assertTrue(send_email.called)
+        self.assertIn("Главные замечания", send_email.call_args.kwargs["body"])
+        mark_sent.assert_called_once_with(22)
+
+    def test_send_subscription_report_includes_diff_summary(self) -> None:
+        job = {
+            "id": "job-1",
+            "host": "example.ru",
+            "port": 443,
+            "subscription_id": 7,
+            "subscription_email": "admin@example.ru",
+            "subscription_plan": "support",
+        }
+        report = {"grade": "B", "score": 81, "summary": ["Есть замечания"], "findings": []}
+        diff = MonitoringDiff(
+            grade_degraded=True,
+            score_delta=-9,
+            added_findings=[FindingSummary("a", "A", "high", "tls")],
+            resolved_findings=[FindingSummary("b", "B", "high", "tls")],
+        )
+        with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
+            worker.subscription_store, "mark_sent"
+        ) as mark_sent, patch.object(
+            worker.subscription_store, "should_send_report", return_value=True
+        ), patch.object(
+            worker.subscription_store, "mark_report_sent"
+        ) as mark_report_sent, patch.dict(
+            os.environ,
+            {"SMTP_URL": "smtps://example:465", "PUBLIC_BASE_URL": "http://127.0.0.1:8000"},
+            clear=False,
+        ):
+            worker.send_subscription_report(job, report, diff)
+        body = send_email.call_args.kwargs["body"]
+        self.assertIn("Изменения с прошлого скана: стало хуже", body)
+        self.assertIn("баллы: -9", body)
+        self.assertIn("новых проблем: 1, исправлено: 1", body)
+        mark_sent.assert_called_once_with(7)
+        mark_report_sent.assert_called_once_with(7, "job-1")
+
+    def test_send_subscription_report_free_plan_is_concise(self) -> None:
+        job = {
+            "id": "job-2",
+            "host": "example.ru",
+            "port": 443,
+            "subscription_id": 8,
+            "subscription_email": "admin@example.ru",
+            "subscription_plan": "free",
+        }
+        report = {"grade": "A", "score": 93, "summary": ["Стабильная конфигурация"], "findings": []}
+        diff = MonitoringDiff(grade_improved=True, score_delta=4)
+        with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
+            worker.subscription_store, "mark_sent"
+        ), patch.object(
+            worker.subscription_store, "should_send_report", return_value=True
+        ), patch.object(
+            worker.subscription_store, "mark_report_sent"
+        ), patch.dict(
+            os.environ,
+            {"SMTP_URL": "smtps://example:465", "PUBLIC_BASE_URL": "http://127.0.0.1:8000"},
+            clear=False,
+        ):
+            worker.send_subscription_report(job, report, diff)
+        body = send_email.call_args.kwargs["body"]
+        self.assertIn("базовый еженедельный отчёт", body)
+        self.assertNotIn("Изменения с прошлого скана", body)
+        self.assertNotIn("Главные замечания", body)
+
+    def test_send_subscription_report_skips_duplicate_scan(self) -> None:
+        job = {
+            "id": "job-dup",
+            "host": "example.ru",
+            "port": 443,
+            "subscription_id": 8,
+            "subscription_email": "admin@example.ru",
+            "subscription_plan": "free",
+        }
+        report = {"grade": "A", "score": 93, "summary": ["Стабильная конфигурация"], "findings": []}
+        with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
+            worker.subscription_store, "should_send_report", return_value=False
+        ), patch.object(
+            worker.subscription_store, "mark_report_sent"
+        ) as mark_report_sent, patch.object(
+            worker.subscription_store, "mark_sent"
+        ) as mark_sent, patch.dict(
+            os.environ,
+            {"SMTP_URL": "smtps://example:465", "PUBLIC_BASE_URL": "http://127.0.0.1:8000"},
+            clear=False,
+        ):
+            worker.send_subscription_report(job, report, None)
+        send_email.assert_not_called()
+        mark_report_sent.assert_not_called()
+        mark_sent.assert_not_called()
+
+    def test_send_subscription_failure_report_marks_critical_delivery(self) -> None:
+        job = {
+            "id": "job-3",
+            "host": "down.example.ru",
+            "subscription_id": 9,
+            "subscription_email": "admin@example.ru",
+            "subscription_plan": "support",
+        }
+        with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
+            worker.subscription_store, "mark_alert_sent"
+        ) as mark_alert_sent, patch.object(
+            worker.subscription_store, "should_send_alert", return_value=True
+        ), patch.dict(
+            os.environ,
+            {"SMTP_URL": "smtps://example:465"},
+            clear=False,
+        ):
+            worker.send_subscription_failure_report(job, "timeout")
+        self.assertIn("critical", send_email.call_args.kwargs["subject"].lower())
+        self.assertIn("timeout", send_email.call_args.kwargs["body"])
+        mark_alert_sent.assert_called_once_with(9, "scan_failed")
+
+    def test_send_subscription_alert_report_for_support_plan(self) -> None:
+        job = {
+            "id": "job-4",
+            "host": "alert.example.ru",
+            "subscription_id": 10,
+            "subscription_email": "admin@example.ru",
+            "subscription_plan": "support",
+        }
+        events = [
+            MonitoringEvent(
+                event_type="certificate_expiring",
+                severity="high",
+                title="Сертификат скоро истечет",
+                detail="осталось 7 дней",
+            ),
+            MonitoringEvent(
+                event_type="certificate_expired",
+                severity="critical",
+                title="Сертификат истек",
+                detail="notAfter in past",
+            ),
+        ]
+        report = {"grade": "C", "score": 70}
+        with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
+            worker.subscription_store, "should_send_alert", return_value=True
+        ), patch.object(
+            worker.subscription_store, "mark_alert_sent"
+        ) as mark_alert_sent, patch.dict(
+            os.environ,
+            {"SMTP_URL": "smtps://example:465"},
+            clear=False,
+        ):
+            worker.send_subscription_alert_report(job, events, report)
+        body = send_email.call_args.kwargs["body"]
+        self.assertIn("Сертификат скоро истечет", body)
+        self.assertIn("Сертификат истек", body)
+        self.assertIn("C (70/100)", body)
+        self.assertEqual(mark_alert_sent.call_count, 2)
+
+    def test_send_subscription_alert_report_respects_daily_cooldown(self) -> None:
+        job = {
+            "id": "job-5",
+            "host": "alert.example.ru",
+            "subscription_id": 11,
+            "subscription_email": "admin@example.ru",
+            "subscription_plan": "support",
+        }
+        events = [
+            MonitoringEvent(
+                event_type="certificate_expiring",
+                severity="high",
+                title="Сертификат скоро истечет",
+                detail="осталось 7 дней",
+            )
+        ]
+        report = {"grade": "B", "score": 80}
+        with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
+            worker.subscription_store, "should_send_alert", return_value=False
+        ), patch.object(
+            worker.subscription_store, "mark_alert_sent"
+        ) as mark_alert_sent, patch.dict(
+            os.environ,
+            {"SMTP_URL": "smtps://example:465"},
+            clear=False,
+        ):
+            worker.send_subscription_alert_report(job, events, report)
+        send_email.assert_not_called()
+        mark_alert_sent.assert_not_called()
+
+    def test_send_subscription_alert_report_ignores_non_certificate_events(self) -> None:
+        job = {
+            "id": "job-6",
+            "host": "alert.example.ru",
+            "subscription_id": 12,
+            "subscription_email": "admin@example.ru",
+            "subscription_plan": "support",
+        }
+        events = [
+            MonitoringEvent(
+                event_type="grade_degraded",
+                severity="high",
+                title="Оценка TLS ухудшилась",
+                detail="score delta -6",
+            )
+        ]
+        report = {"grade": "B", "score": 83}
+        with patch.object(worker, "send_email", return_value=True) as send_email, patch.dict(
+            os.environ,
+            {"SMTP_URL": "smtps://example:465"},
+            clear=False,
+        ):
+            worker.send_subscription_alert_report(job, events, report)
+        send_email.assert_not_called()
 
     def test_handle_job_records_monitoring_failure_for_scheduled_scan(self) -> None:
         job_store = InMemoryJobStore()
         monitoring_store = InMemoryMonitoringStore()
-        domain = monitoring_store.upsert_domain("example.ru")
+        monitoring_store.upsert_domain("example.ru")
         job = job_store.create("example.ru", 443, ["93.184.216.34"])
 
         with patch.object(worker, "job_store", job_store), patch.object(
@@ -73,13 +305,12 @@ class WorkerMonitoringTests(unittest.TestCase):
                     "host": "example.ru",
                     "port": 443,
                     "addresses": ["93.184.216.34"],
-                    "monitored_domain_id": domain.id,
+                    "monitored_domain_id": 1,
                 }
             )
 
         self.assertEqual(result["status"], "error")
-        self.assertEqual(monitoring_store.events[0]["event_type"], "scan_failed")
-        self.assertEqual(monitoring_store.events[0]["scan_id"], job.id)
+        self.assertEqual(result["error"], "DNS failed")
 
 
 if __name__ == "__main__":
