@@ -1,9 +1,13 @@
 import logging
+import secrets
+import subprocess
 from datetime import datetime, timezone
 from typing import Dict
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 try:
-    from fastapi import FastAPI, HTTPException, Request
+    from fastapi import FastAPI, Header, HTTPException, Request
     from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
     from pydantic import BaseModel, Field
 except ImportError as exc:  # pragma: no cover - installed in Docker/runtime.
@@ -14,6 +18,12 @@ except ImportError as exc:  # pragma: no cover - installed in Docker/runtime.
 from shared.tls_audit.validation import validate_target
 from shared.tls_audit.compare import compare_reports, summarize_report
 from shared.tls_audit.logging import log_event
+from shared.tls_audit.monitor_access import (
+    build_monitor_token_secret,
+    create_monitor_owner_token as build_owner_token,
+    email_from_monitor_owner_token as parse_owner_token,
+    monitoring_admin_token_valid,
+)
 from shared.tls_audit.traffic_control import AdmissionDecision
 
 from .archive import archive_store
@@ -79,6 +89,107 @@ class ProCheckoutRequest(BaseModel):
 
 class ProActivateDemoRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=254)
+
+
+class OwnershipChallengeRequest(BaseModel):
+    method: str = Field(default="dns_txt", min_length=3, max_length=32)
+
+
+def monitor_token_secret() -> str:
+    return build_monitor_token_secret(
+        monitoring_token_secret=settings.monitoring_token_secret,
+        database_url=settings.database_url,
+        redis_url=settings.redis_url,
+        public_base_url=settings.public_base_url,
+        contact_email=settings.contact_email,
+    )
+
+
+def create_monitor_owner_token(email: str) -> str:
+    return build_owner_token(email, monitor_token_secret())
+
+
+def email_from_monitor_owner_token(token: str) -> str | None:
+    return parse_owner_token(token, monitor_token_secret())
+
+
+def require_monitor_owner_token(token: str) -> str:
+    email = email_from_monitor_owner_token(token)
+    if not email:
+        raise HTTPException(
+            status_code=403,
+            detail="Нужна приватная ссылка управления подпиской.",
+        )
+    return email
+
+
+def require_subscription_owner(subscription_id: int, token: str):
+    normalized = require_monitor_owner_token(token)
+    sub = subscription_store.get_by_id(subscription_id)
+    if not sub:
+        raise HTTPException(status_code=404, detail="Подписка не найдена.")
+    if sub.email != normalized:
+        raise HTTPException(status_code=403, detail="Недостаточно прав для этой подписки.")
+    return sub
+
+
+def ownership_http_url(host: str) -> str:
+    return f"https://{host}/.well-known/tlsaudit-verification.txt"
+
+
+def verify_http_file(host: str, token: str, timeout: int = 8) -> tuple[bool, str]:
+    url = ownership_http_url(host)
+    try:
+        with urllib_request.urlopen(url, timeout=timeout) as response:
+            body = response.read(4096).decode("utf-8", errors="replace")
+    except urllib_error.URLError as exc:
+        return False, f"Не удалось получить {url}: {exc}"
+    return (token in body, f"Проверен {url}")
+
+
+def parse_dig_txt_output(output: str) -> list[str]:
+    values: list[str] = []
+    for line in str(output or "").splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        text = text.replace('" "', "").replace('"', "")
+        if text:
+            values.append(text)
+    return values
+
+
+def lookup_txt_records(name: str) -> tuple[list[str], str]:
+    dig = subprocess.run(
+        ["dig", "+short", "TXT", name],
+        capture_output=True,
+        text=True,
+        timeout=8,
+        check=False,
+    )
+    values = parse_dig_txt_output(dig.stdout)
+    if values:
+        return values, "dig"
+    return [], "dig"
+
+
+def verify_dns_txt(host: str, token: str) -> tuple[bool, str]:
+    name = f"_tlsaudit-challenge.{host}"
+    values, source = lookup_txt_records(name)
+    if not values:
+        return False, f"TXT запись {name} не найдена ({source})."
+    matched = any(token in value for value in values)
+    return matched, f"Проверена TXT запись {name} ({source})."
+
+
+def require_monitoring_admin_token(
+    x_monitoring_admin_token: str | None = None,
+) -> None:
+    if not monitoring_admin_token_valid(
+        settings.monitoring_admin_token,
+        x_monitoring_admin_token,
+    ):
+        raise HTTPException(status_code=404, detail="Not Found")
 
 
 @app.get("/health")
@@ -177,6 +288,21 @@ def haproxy_tls_config_page() -> str:
 @app.get("/methodology", response_class=HTMLResponse)
 def methodology_page() -> str:
     return render_static_page("methodology")
+
+
+@app.get("/tls-audit-vs-ssl-labs", response_class=HTMLResponse)
+def tls_audit_vs_ssl_labs_page() -> str:
+    return render_static_page("tls-audit-vs-ssl-labs")
+
+
+@app.get("/methodology-changelog", response_class=HTMLResponse)
+def methodology_changelog_page() -> str:
+    return render_static_page("methodology-changelog")
+
+
+@app.get("/sample-reports", response_class=HTMLResponse)
+def sample_reports_page() -> str:
+    return render_static_page("sample-reports")
 
 
 @app.get("/support", response_class=HTMLResponse)
@@ -496,13 +622,21 @@ def compare_report(job_id: str) -> Dict[str, object]:
 
 
 @app.get("/api/monitor/domains")
-def list_monitor_domains(limit: int = 100) -> Dict[str, object]:
+def list_monitor_domains(
+    limit: int = 100,
+    x_monitoring_admin_token: str | None = Header(default=None),
+) -> Dict[str, object]:
+    require_monitoring_admin_token(x_monitoring_admin_token)
     domains = monitoring_store.list_domains(limit=max(1, min(limit, 500)))
     return {"items": [domain_to_dict(item) for item in domains]}
 
 
 @app.post("/api/monitor/domains")
-def upsert_monitor_domain(payload: MonitorDomainRequest) -> Dict[str, object]:
+def upsert_monitor_domain(
+    payload: MonitorDomainRequest,
+    x_monitoring_admin_token: str | None = Header(default=None),
+) -> Dict[str, object]:
+    require_monitoring_admin_token(x_monitoring_admin_token)
     if payload.scan_interval_seconds < MIN_SCAN_INTERVAL_SECONDS:
         raise HTTPException(
             status_code=400,
@@ -526,7 +660,12 @@ def upsert_monitor_domain(payload: MonitorDomainRequest) -> Dict[str, object]:
 
 
 @app.get("/api/monitor/domains/{domain_id}/snapshots")
-def list_monitor_snapshots(domain_id: int, limit: int = 20) -> Dict[str, object]:
+def list_monitor_snapshots(
+    domain_id: int,
+    limit: int = 20,
+    x_monitoring_admin_token: str | None = Header(default=None),
+) -> Dict[str, object]:
+    require_monitoring_admin_token(x_monitoring_admin_token)
     snapshots = monitoring_store.list_snapshots(
         monitored_domain_id=domain_id,
         limit=max(1, min(limit, 200)),
@@ -535,7 +674,12 @@ def list_monitor_snapshots(domain_id: int, limit: int = 20) -> Dict[str, object]
 
 
 @app.get("/api/monitor/domains/{domain_id}/events")
-def list_monitor_events(domain_id: int, limit: int = 50) -> Dict[str, object]:
+def list_monitor_events(
+    domain_id: int,
+    limit: int = 50,
+    x_monitoring_admin_token: str | None = Header(default=None),
+) -> Dict[str, object]:
+    require_monitoring_admin_token(x_monitoring_admin_token)
     events = monitoring_store.list_events(
         monitored_domain_id=domain_id,
         limit=max(1, min(limit, 500)),
@@ -544,7 +688,12 @@ def list_monitor_events(domain_id: int, limit: int = 50) -> Dict[str, object]:
 
 
 @app.get("/api/monitor/domains/{domain_id}/trend")
-def monitor_domain_trend(domain_id: int, days: int = 90) -> Dict[str, object]:
+def monitor_domain_trend(
+    domain_id: int,
+    days: int = 90,
+    x_monitoring_admin_token: str | None = Header(default=None),
+) -> Dict[str, object]:
+    require_monitoring_admin_token(x_monitoring_admin_token)
     snapshots = monitoring_store.list_snapshots(
         monitored_domain_id=domain_id,
         limit=max(10, min(days * 8, 2000)),
@@ -590,7 +739,12 @@ def monitor_domain_trend(domain_id: int, days: int = 90) -> Dict[str, object]:
 
 
 @app.patch("/api/monitor/domains/{domain_id}")
-def patch_monitor_domain(domain_id: int, payload: MonitorDomainPatchRequest) -> Dict[str, object]:
+def patch_monitor_domain(
+    domain_id: int,
+    payload: MonitorDomainPatchRequest,
+    x_monitoring_admin_token: str | None = Header(default=None),
+) -> Dict[str, object]:
+    require_monitoring_admin_token(x_monitoring_admin_token)
     if payload.scan_interval_seconds is not None and payload.scan_interval_seconds < MIN_SCAN_INTERVAL_SECONDS:
         raise HTTPException(
             status_code=400,
@@ -611,7 +765,11 @@ def patch_monitor_domain(domain_id: int, payload: MonitorDomainPatchRequest) -> 
 
 
 @app.post("/api/monitor/domains/{domain_id}/scan-now")
-def monitor_scan_now(domain_id: int) -> Dict[str, object]:
+def monitor_scan_now(
+    domain_id: int,
+    x_monitoring_admin_token: str | None = Header(default=None),
+) -> Dict[str, object]:
+    require_monitoring_admin_token(x_monitoring_admin_token)
     domain = monitoring_store.get_domain(domain_id)
     if not domain:
         raise HTTPException(status_code=404, detail="Домен мониторинга не найден.")
@@ -689,10 +847,8 @@ def create_monitor_subscription(payload: SubscribeRequest) -> Dict[str, object]:
 
 
 @app.get("/api/subscriptions/monitoring")
-def list_monitor_subscriptions(email: str, limit: int = 20) -> Dict[str, object]:
-    normalized = email.strip().lower()
-    if "@" not in normalized or normalized.startswith("@") or normalized.endswith("@"):
-        raise HTTPException(status_code=400, detail="Укажите корректный email.")
+def list_monitor_subscriptions(token: str, limit: int = 20) -> Dict[str, object]:
+    normalized = require_monitor_owner_token(token)
     items = subscription_store.list_by_email(normalized, limit=max(1, min(limit, 100)))
     has_support = any(item.plan == "support" and item.enabled for item in items)
     account = billing_store.get_by_email(normalized)
@@ -709,6 +865,7 @@ def list_monitor_subscriptions(email: str, limit: int = 20) -> Dict[str, object]
         "email": normalized,
         "plan": effective_plan,
         "domain_limit": effective_limit,
+        "manage_token": token,
         "items": [
             {
                 "id": item.id,
@@ -717,6 +874,9 @@ def list_monitor_subscriptions(email: str, limit: int = 20) -> Dict[str, object]
                 "plan": "pro" if item.plan == "support" else item.plan,
                 "enabled": item.enabled,
                 "confirmed": item.confirmed,
+                "ownership_method": item.ownership_method,
+                "ownership_verified": item.ownership_verified_at is not None,
+                "ownership_verified_at": iso_or_none(item.ownership_verified_at),
                 "last_sent_at": iso_or_none(item.last_sent_at),
                 "next_run_at": iso_or_none(item.next_run_at),
                 "created_at": iso_or_none(item.created_at),
@@ -727,10 +887,8 @@ def list_monitor_subscriptions(email: str, limit: int = 20) -> Dict[str, object]
 
 
 @app.get("/api/subscriptions/monitoring/events")
-def list_monitor_subscription_events(email: str, limit: int = 30) -> Dict[str, object]:
-    normalized = email.strip().lower()
-    if "@" not in normalized or normalized.startswith("@") or normalized.endswith("@"):
-        raise HTTPException(status_code=400, detail="Укажите корректный email.")
+def list_monitor_subscription_events(token: str, limit: int = 30) -> Dict[str, object]:
+    normalized = require_monitor_owner_token(token)
     items = subscription_store.list_by_email(normalized, limit=max(1, min(limit, 100)))
     domains = monitoring_store.list_domains(limit=1000) if getattr(monitoring_store, "enabled", False) else []
     domain_map = {(item.host, int(item.port)): item for item in domains}
@@ -752,10 +910,12 @@ def list_monitor_subscription_events(email: str, limit: int = 30) -> Dict[str, o
                 "plan": "pro" if sub.plan == "support" else sub.plan,
                 "enabled": sub.enabled,
                 "confirmed": sub.confirmed,
+                "ownership_method": sub.ownership_method,
+                "ownership_verified": sub.ownership_verified_at is not None,
                 "events": events,
             }
         )
-    return {"email": normalized, "items": result_items}
+    return {"email": normalized, "items": result_items, "manage_token": token}
 
 
 @app.get("/api/subscriptions/monitoring/confirm", response_class=HTMLResponse)
@@ -777,6 +937,10 @@ h1{margin:0 0 12px;font-size:30px} p{margin:8px 0} .muted{color:#5b6272} a{color
 </div></div></body></html>"""
         return HTMLResponse(content=body, status_code=404)
     plan_title = "Бесплатный" if sub.plan == "free" else "Pro (расширенный)"
+    manage_url = (
+        f"{settings.public_base_url}/monitor-status"
+        f"?token={create_monitor_owner_token(sub.email)}"
+    )
     body = f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Подписка подтверждена</title>
@@ -792,6 +956,7 @@ a{{color:#0f766e}}
 <p><strong>Email:</strong> {sub.email}</p>
 <p><strong>План:</strong> {plan_title}</p>
 <p class="muted">Мониторинг активирован. Следующий отчёт придёт автоматически по расписанию.</p>
+<p><a href="{manage_url}">Открыть приватное управление подпиской</a></p>
 <p><a href="/">Вернуться на главную</a></p>
 </div></div></body></html>"""
     return HTMLResponse(content=body)
@@ -828,7 +993,8 @@ def unsubscribe_monitor_subscription(token: str) -> HTMLResponse:
 
 
 @app.post("/api/subscriptions/monitoring/{subscription_id}/run-now")
-def run_monitor_subscription_now(subscription_id: int) -> Dict[str, object]:
+def run_monitor_subscription_now(subscription_id: int, token: str) -> Dict[str, object]:
+    require_subscription_owner(subscription_id, token)
     from services.scheduler.scheduler import run_subscription_now
 
     result = run_subscription_now(subscription_id)
@@ -839,6 +1005,113 @@ def run_monitor_subscription_now(subscription_id: int) -> Dict[str, object]:
     if result["status"] == "not_confirmed":
         raise HTTPException(status_code=409, detail="Подписка не подтверждена.")
     return result
+
+
+@app.post("/api/subscriptions/monitoring/{subscription_id}/ownership/challenge")
+def begin_subscription_ownership_challenge(
+    subscription_id: int,
+    payload: OwnershipChallengeRequest,
+    token: str,
+) -> Dict[str, object]:
+    sub = require_subscription_owner(subscription_id, token)
+    method = payload.method.strip().lower()
+    if method not in {"dns_txt", "http_file"}:
+        raise HTTPException(status_code=400, detail="Поддерживаются только dns_txt и http_file.")
+
+    challenge = secrets.token_urlsafe(18)
+    updated = subscription_store.begin_ownership_verification(
+        subscription_id=sub.id,
+        method=method,
+        token=challenge,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Подписка не найдена.")
+
+    if method == "dns_txt":
+        return {
+            "subscription_id": updated.id,
+            "method": method,
+            "host": updated.host,
+            "token": challenge,
+            "record_name": f"_tlsaudit-challenge.{updated.host}",
+            "record_type": "TXT",
+            "record_value": challenge,
+            "instruction": (
+                "Добавьте TXT запись и дождитесь её распространения в DNS, "
+                "после чего нажмите Verify."
+            ),
+        }
+    return {
+        "subscription_id": updated.id,
+        "method": method,
+        "host": updated.host,
+        "token": challenge,
+        "file_url": ownership_http_url(updated.host),
+        "file_content": challenge,
+        "instruction": (
+            "Создайте файл по указанному URL с указанным содержимым, "
+            "после чего нажмите Verify."
+        ),
+    }
+
+
+@app.get("/api/subscriptions/monitoring/{subscription_id}/ownership/status")
+def get_subscription_ownership_status(subscription_id: int, token: str) -> Dict[str, object]:
+    sub = require_subscription_owner(subscription_id, token)
+    return {
+        "subscription_id": sub.id,
+        "host": sub.host,
+        "plan": "pro" if sub.plan == "support" else sub.plan,
+        "ownership_method": sub.ownership_method or "",
+        "ownership_verified": sub.ownership_verified_at is not None,
+        "ownership_verified_at": iso_or_none(sub.ownership_verified_at),
+    }
+
+
+@app.post("/api/subscriptions/monitoring/{subscription_id}/ownership/verify")
+def verify_subscription_ownership(subscription_id: int, token: str) -> Dict[str, object]:
+    sub = require_subscription_owner(subscription_id, token)
+    if sub.plan != "support":
+        return {
+            "subscription_id": sub.id,
+            "plan": "free",
+            "ownership_required": False,
+            "ownership_verified": True,
+            "detail": "Для бесплатного плана отдельная ownership-проверка не требуется.",
+        }
+    if not sub.ownership_method or not sub.ownership_token:
+        raise HTTPException(
+            status_code=409,
+            detail="Сначала создайте challenge через /ownership/challenge.",
+        )
+
+    if sub.ownership_method == "dns_txt":
+        ok, detail = verify_dns_txt(sub.host, sub.ownership_token)
+    elif sub.ownership_method == "http_file":
+        ok, detail = verify_http_file(sub.host, sub.ownership_token)
+    else:
+        raise HTTPException(status_code=400, detail="Неизвестный метод ownership-проверки.")
+
+    if not ok:
+        return {
+            "subscription_id": sub.id,
+            "host": sub.host,
+            "ownership_verified": False,
+            "method": sub.ownership_method,
+            "detail": detail,
+        }
+
+    updated = subscription_store.mark_ownership_verified(sub.id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Подписка не найдена.")
+    return {
+        "subscription_id": updated.id,
+        "host": updated.host,
+        "ownership_verified": True,
+        "ownership_verified_at": iso_or_none(updated.ownership_verified_at),
+        "method": updated.ownership_method,
+        "detail": detail,
+    }
 
 
 def request_ip(request: Request) -> str:

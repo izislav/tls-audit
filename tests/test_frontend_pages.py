@@ -1,6 +1,11 @@
 import unittest
 
-from services.api.app.frontend import STATIC_PAGES, render_frontend, render_static_page
+from services.api.app.frontend import (
+    CONTACT_EMAIL,
+    STATIC_PAGES,
+    render_frontend,
+    render_static_page,
+)
 
 
 class FrontendPagesTests(unittest.TestCase):
@@ -20,8 +25,12 @@ class FrontendPagesTests(unittest.TestCase):
         self.assertIn('href="/caddy-tls-config"', html)
         self.assertIn('href="/haproxy-tls-config"', html)
         self.assertIn('href="/methodology"', html)
+        self.assertIn('href="/tls-audit-vs-ssl-labs"', html)
+        self.assertIn('href="/methodology-changelog"', html)
+        self.assertIn('href="/sample-reports"', html)
         self.assertIn("Политика данных", html)
-        self.assertIn("mailto:ya.izis@yandex.ru", html)
+        self.assertIn(f"mailto:{CONTACT_EMAIL}", html)
+        self.assertIn("Не замена SSL Labs", html)
 
     def test_static_pages_have_canonical_and_return_link(self):
         for page_key, page in STATIC_PAGES.items():
@@ -46,8 +55,8 @@ class FrontendPagesTests(unittest.TestCase):
         self.assertNotIn('class="inline-tool"', html)
 
     def test_policy_pages_use_working_contact_email(self):
-        self.assertIn("ya.izis@yandex.ru", render_static_page("privacy"))
-        self.assertIn("ya.izis@yandex.ru", render_static_page("security"))
+        self.assertIn(CONTACT_EMAIL, render_static_page("privacy"))
+        self.assertIn(CONTACT_EMAIL, render_static_page("security"))
 
     def test_seo_pages_have_search_intent_titles(self):
         cases = {
@@ -60,6 +69,9 @@ class FrontendPagesTests(unittest.TestCase):
             "caddy-tls-config": "TLS-конфиг для Caddy",
             "haproxy-tls-config": "TLS-конфиг для HAProxy",
             "methodology": "Методика проверки HTTPS/TLS",
+            "tls-audit-vs-ssl-labs": "TLS Audit vs SSL Labs",
+            "methodology-changelog": "Changelog методики TLS Audit",
+            "sample-reports": "Примеры отчетов TLS Audit",
         }
 
         for page_key, title in cases.items():
@@ -68,6 +80,14 @@ class FrontendPagesTests(unittest.TestCase):
 
                 self.assertIn(title, html)
                 self.assertIn("TLS Audit", html)
+
+    def test_methodology_page_has_version_and_matrix(self):
+        html = render_static_page("methodology")
+
+        self.assertIn("Версия методики: 0.2", html)
+        self.assertIn("Ключевые группы проверок", html)
+        self.assertIn("Что не покрывается", html)
+        self.assertIn("testssl.sh", html)
 
 
 if __name__ == "__main__":

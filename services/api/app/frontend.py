@@ -436,43 +436,224 @@ STATIC_PAGES = {
     },
     "methodology": {
         "title": "Методика проверки HTTPS/TLS",
-        "description": "Как TLS Audit проверяет сайт, из чего складывается оценка и почему автоматический отчёт нужно читать вместе с рекомендациями.",
+        "description": "Публичная методика TLS Audit v0.2: что проверяется, как это влияет на оценку, на что опираются выводы и где проходят границы автоматической диагностики.",
         "path": "/methodology",
+        "updated": "25.05.2026",
+        "version": "0.2",
         "sections": [
+            (
+                "Зачем это нужно",
+                [
+                    "TLS Audit не пытается быть копией SSL Labs: это русскоязычный диагностический инструмент, который объясняет, что сломано, почему это важно и как исправить конфигурацию.",
+                    "Публичная оценка нужна для быстрой навигации по рискам, но сам отчёт важнее буквы: он показывает причины, ограничения и рекомендации.",
+                    "Методика версии 0.2 делает оценки прозрачнее: сервис объясняет, что именно проверялось, как это влияет на вывод и где автоматическая проверка заканчивается.",
+                ],
+            ),
             (
                 "Что проверяется",
                 [
-                    "Сертификат: срок действия, совпадение домена, SAN, issuer, параметры ключа и базовые признаки цепочки доверия.",
-                    "TLS-конфигурация: поддерживаемые версии протокола, наборы шифров, forward secrecy и опасные legacy-настройки.",
-                    "HTTP-защита: HSTS, OCSP stapling и связанные заголовки, которые влияют на устойчивость HTTPS-конфигурации.",
-                    "Российская совместимость: признаки российских УЦ и ГОСТ вынесены отдельно и не смешиваются с глобальной TLS-оценкой.",
+                    "Сертификат: срок действия, совпадение домена, SAN, issuer, параметры ключа и признаки проблем с цепочкой доверия.",
+                    "TLS-конфигурация: поддерживаемые версии протокола, cipher suites, server preference, forward secrecy и legacy-настройки.",
+                    "HTTP и HTTPS-hardening: HSTS, OCSP stapling и связанные заголовки, которые влияют на устойчивость публичной конфигурации.",
+                    "Отдельный блок совместимости: российские УЦ и ГОСТ не улучшают глобальную оценку, а показываются отдельным слоем для специальных сценариев.",
                 ],
             ),
             (
                 "Как читать оценку",
                 [
                     "A+ означает сильную публичную HTTPS/TLS-конфигурацию без критичных замечаний и с включённым HSTS.",
-                    "A и B обычно означают рабочую современную основу, но с улучшениями, которые стоит запланировать.",
-                    "C и D показывают, что есть заметные проблемы безопасности или совместимости, которые лучше исправить первыми.",
-                    "Информационные уведомления не обязаны снижать оценку: они помогают довести конфигурацию до аккуратного состояния.",
+                    "A и B означают рабочую современную основу с разным объёмом hardening-замечаний или legacy-совместимости.",
+                    "C и D показывают, что в конфигурации есть проблемы, влияющие на безопасность, совместимость или доверие к сертификату.",
+                    "Не каждое уведомление снижает оценку: часть сигналов относится к hardening и помогает довести конфигурацию до аккуратного состояния.",
                 ],
             ),
             (
-                "Приоритеты исправлений",
+                "Как устроены источники данных",
                 [
-                    "Сначала исправляйте критичные проблемы: истёкший сертификат, mismatch домена, SSLv3, опасные cipher suites и недоверенную цепочку.",
-                    "Затем убирайте устаревшие протоколы и слабые наборы шифров, если они включены ради старой совместимости.",
-                    "После этого включайте HSTS и дополнительные hardening-настройки, проверяя сайт и поддомены перед жёсткими параметрами.",
-                    "Повторная проверка показывает блок 'Было/стало', чтобы было видно, какие замечания исчезли после изменений.",
+                    "Базовый Python scanner собирает сертификат, базовую цепочку доверия, TLS-версии, часть cipher-признаков и HTTP-заголовки.",
+                    "testssl.sh используется как глубокий внешний сканер для cipher suites, части уязвимостей, цепочки, stapling и дополнительных TLS-сигналов.",
+                    "OpenSSL probes нужны для дополнительных подтверждений по сертификату и TLS-рукопожатию.",
+                    "DNS probe фиксирует, какие публичные адреса были разрешены перед запуском сканирования.",
+                    "Следующий шаг версии 0.2: показать evidence по каждому важному выводу прямо в отчёте.",
                 ],
             ),
             (
                 "Ограничения автоматической проверки",
                 [
                     "Сервис видит публичную точку входа: если перед сайтом стоит CDN или балансировщик, отчёт относится именно к нему.",
-                    "Некоторые риски зависят от приложения и содержимого страниц, поэтому они могут показываться как уведомления, а не как жёсткое снижение оценки.",
-                    "Отчёт помогает быстро найти проблемы конфигурации, но не заменяет полноценный аудит инфраструктуры и веб-приложения.",
-                    "Методика TLS Audit развивается, поэтому оценка может уточняться по мере появления новых проверок и практики эксплуатации.",
+                    "Некоторые риски зависят от приложения, бизнес-логики и содержимого страниц, поэтому показываются как контекст или hardening, а не как жёсткое снижение оценки.",
+                    "TLS Audit не заменяет полноценный аудит инфраструктуры, web security review и ручную проверку продакшен-изменений.",
+                    "Методика будет развиваться: у неё есть версия, changelog и отдельная страница сравнения с SSL Labs, чтобы не смешивать разные модели оценки.",
+                ],
+            ),
+        ],
+        "tables": [
+            {
+                "title": "Ключевые группы проверок",
+                "headers": [
+                    "Проверка",
+                    "Как влияет",
+                    "Почему важно",
+                    "Основание",
+                    "Как исправить",
+                    "Что не покрывается",
+                ],
+                "rows": [
+                    [
+                        "Сертификат и hostname",
+                        "Истекший, недоверенный или mismatch-сертификат может увести оценку в D.",
+                        "Пользователь получает предупреждение браузера и теряет доверие к сайту.",
+                        "Практика браузеров, OWASP TLS, базовые требования PKI.",
+                        "Перевыпустить сертификат, проверить SAN/CN, установить корректную цепочку.",
+                        "Не проверяются внутренние сертификаты за VPN и приватные точки входа.",
+                    ],
+                    [
+                        "TLS-версии",
+                        "SSLv3 и опасные legacy-настройки дают сильное снижение; TLS 1.2/1.3 считаются нормальной базой.",
+                        "Старые протоколы несут известные криптографические и совместимые риски.",
+                        "OWASP TLS Cheat Sheet, практики браузеров и вендоров.",
+                        "Оставить TLS 1.2 и TLS 1.3, проверить совместимость легаси-клиентов отдельно.",
+                        "Не моделируется реальная аудитория всех ваших старых клиентов.",
+                    ],
+                    [
+                        "Cipher suites",
+                        "Опасные наборы шифров снижают оценку сильнее, чем умеренные hardening-замечания.",
+                        "Слабые алгоритмы и плохая комбинация протокол/шифр ухудшают безопасность канала.",
+                        "testssl.sh, Mozilla guidance, практические TLS baseline-рекомендации.",
+                        "Отключить RC4, 3DES, NULL/EXPORT/anon; сократить CBC-only конфигурации.",
+                        "Сервис не моделирует поведение каждого CDN или TLS-терминатора по отдельности.",
+                    ],
+                    [
+                        "HSTS и HTTPS-hardening",
+                        "HSTS помогает дойти до A+, но часть связанных замечаний идёт как hardening, а не как критический штраф.",
+                        "Защищает от downgrade и случайного возврата на HTTP.",
+                        "MDN, практики эксплуатации публичных HTTPS-сайтов.",
+                        "Включить HSTS поэтапно: сначала малый max-age, потом production-значение.",
+                        "Не проверяется готовность всех поддоменов к includeSubDomains/preload.",
+                    ],
+                    [
+                        "ГОСТ и российские УЦ",
+                        "Не меняют глобальную оценку A+...D.",
+                        "Это отдельный вопрос совместимости для российских инфраструктурных сценариев.",
+                        "Локальный справочник УЦ и признаки ГОСТ-алгоритмов.",
+                        "Использовать как отдельную проверку совместимости, а не как замену глобальной TLS-безопасности.",
+                        "Сервис не гарантирует фактическую совместимость со всеми российскими браузерами и CSP-стеками.",
+                    ],
+                ],
+            }
+        ],
+    },
+    "tls-audit-vs-ssl-labs": {
+        "title": "TLS Audit vs SSL Labs",
+        "description": "Чем отличается TLS Audit от SSL Labs и зачем нужен отдельный русскоязычный диагностический инструмент.",
+        "path": "/tls-audit-vs-ssl-labs",
+        "updated": "25.05.2026",
+        "version": "0.2",
+        "sections": [
+            (
+                "Короткий ответ",
+                [
+                    "TLS Audit не заменяет SSL Labs и не заявляет полную эквивалентность его рейтингам.",
+                    "TLS Audit нужен как русскоязычный помощник: он объясняет, что сломано, почему это опасно и как это исправить на практике.",
+                    "Если вы сравниваете букву оценки один к одному, это неверное ожидание: методики и приоритеты у сервисов разные.",
+                ],
+            ),
+            (
+                "Где сильнее SSL Labs",
+                [
+                    "SSL Labs давно известен как эталонный публичный тест TLS-конфигурации.",
+                    "Его оценка узнаваема, а рейтинг-гайд подробно описан и принят рынком как ориентир.",
+                    "Для международного сравнения и привычной индустриальной шкалы SSL Labs остается важным референсом.",
+                ],
+            ),
+            (
+                "Где полезен TLS Audit",
+                [
+                    "Русскоязычный отчет с прямыми объяснениями и готовыми конфигами для типовых стеков.",
+                    "Отдельный блок российской совместимости, ГОСТ и УЦ РФ без смешивания с глобальной оценкой.",
+                    "Мониторинг и сравнение 'было/стало' вокруг реальных изменений конфигурации.",
+                    "Регулярные отчеты и operational flow, а не только разовая проверка.",
+                ],
+            ),
+            (
+                "Как правильно использовать оба инструмента",
+                [
+                    "Используйте TLS Audit для оперативной диагностики, понятных правок и мониторинга изменений.",
+                    "Используйте SSL Labs как внешний независимый референс, если вам нужен дополнительный взгляд на публичную TLS-конфигурацию.",
+                    "Если оценки различаются, смотрите не только на букву, а на конкретные причины, evidence и поддерживаемые сценарии совместимости.",
+                ],
+            ),
+        ],
+    },
+    "methodology-changelog": {
+        "title": "Changelog методики TLS Audit",
+        "description": "История изменений публичной методики оценки TLS Audit.",
+        "path": "/methodology-changelog",
+        "updated": "25.05.2026",
+        "version": "0.2",
+        "sections": [
+            (
+                "Версия 0.2",
+                [
+                    "План разработки перестроен вокруг публичного доверия, а не просто добавления функций.",
+                    "Методика вынесена в отдельный публичный документ.",
+                    "Зафиксировано направление на evidence, scanner versions и сравнение TLS Audit с SSL Labs.",
+                    "Monitoring и Pro теперь рассматриваются как отдельная приватная поверхность с ownership-требованиями.",
+                ],
+            ),
+            (
+                "Что было раньше",
+                [
+                    "Публичная оценка уже была ограничена шкалой A+...D без показа F и нулевого публичного балла.",
+                    "Часть hardening-замечаний перестала необоснованно снижать оценку так же, как критические TLS-риски.",
+                    "ГОСТ и российские УЦ были вынесены в отдельный блок совместимости.",
+                ],
+            ),
+            (
+                "Следующие изменения",
+                [
+                    "Добавление evidence прямо в отчет по каждому важному выводу.",
+                    "Появление scanner versions и времени сбора данных в явном виде.",
+                    "Стабилизация правил ownership verification для приватного мониторинга.",
+                ],
+            ),
+        ],
+    },
+    "sample-reports": {
+        "title": "Примеры отчетов TLS Audit",
+        "description": "Какие отчеты выдает TLS Audit: разовая публичная проверка, регулярный мониторинг и развернутый operational-отчет.",
+        "path": "/sample-reports",
+        "updated": "25.05.2026",
+        "version": "0.2",
+        "sections": [
+            (
+                "Разовая публичная проверка",
+                [
+                    "Показывает букву оценки, причины, рекомендации, сертификат, TLS-версии, HSTS, cipher suites и отдельный блок российской совместимости.",
+                    "Подходит, когда нужно быстро понять, что сломано на публичной точке входа и что исправлять первым.",
+                ],
+            ),
+            (
+                "Базовый weekly-отчет",
+                [
+                    "Отправляется на email после подтверждения подписки.",
+                    "Содержит оценку, ключевой вывод, главные замечания и ссылку на полный отчет.",
+                    "Нужен, чтобы не запускать ручную проверку каждую неделю.",
+                ],
+            ),
+            (
+                "Развернутый operational-отчет",
+                [
+                    "Добавляет сравнение с прошлым состоянием, изменения в оценке, новые замечания и краткий diff.",
+                    "Подходит для сопровождения нескольких доменов и контроля изменений после релизов и правок конфигурации.",
+                ],
+            ),
+            (
+                "Как выглядит публичная ссылка",
+                [
+                    "Каждый завершенный отчет открывается по прямой ссылке вида /scan?job=...",
+                    "Ссылка нужна для повторного чтения, сравнения и ручной отправки коллегам.",
+                    "Следующий этап версии 0.2: сделать публичные report links более явными и безопасными для шаринга.",
                 ],
             ),
         ],
@@ -503,14 +684,14 @@ STATIC_PAGES = {
     },
     "monitor-status": {
         "title": "Статус подписок",
-        "description": "Техническая read-only страница: статус подписок мониторинга по email.",
+        "description": "Приватная страница управления подпиской мониторинга по защищенной ссылке из письма.",
         "path": "/monitor-status",
         "sections": [
             (
                 "Назначение",
                 [
-                    "Страница показывает состояние подписок по email без возможности управления.",
-                    "Используйте для быстрой проверки, что подписка подтверждена и активна.",
+                    "Страница показывает состояние подписок по защищенной ссылке управления.",
+                    "Используйте её для проверки статуса, просмотра следующего запуска и ручного запуска проверки.",
                 ],
             ),
         ],
@@ -521,6 +702,7 @@ STATIC_PAGES = {
 def render_static_page(page_key: str) -> str:
     page = STATIC_PAGES[page_key]
     canonical = settings.public_base_url + page["path"]
+    updated = page.get("updated", "12.05.2026")
     structured_data = render_json_ld(
         {
             "@context": "https://schema.org",
@@ -534,7 +716,7 @@ def render_static_page(page_key: str) -> str:
                 "name": "TLS Audit",
                 "url": settings.public_base_url + "/",
             },
-            "dateModified": "2026-05-13",
+            "dateModified": "2026-05-25",
         }
     )
     sections = "\n".join(
@@ -548,34 +730,59 @@ def render_static_page(page_key: str) -> str:
         """
         for title, items in page["sections"]
     )
+    tables = "\n".join(
+        f"""
+        <section>
+          <h2>{escape(table["title"])}</h2>
+          <div style="overflow-x:auto">
+            <table>
+              <thead>
+                <tr>{''.join(f'<th>{escape(header)}</th>' for header in table["headers"])}</tr>
+              </thead>
+              <tbody>
+                {''.join('<tr>' + ''.join(f'<td>{render_text_with_contact_link(cell)}</td>' for cell in row) + '</tr>' for row in table["rows"])}
+              </tbody>
+            </table>
+          </div>
+        </section>
+        """
+        for table in page.get("tables", [])
+    )
     if page_key == "monitor-status":
         sections += """
         <section>
           <h2>Проверка статуса</h2>
           <div style="display:grid;gap:10px;max-width:860px">
-            <input id="monitor-status-email" type="email" placeholder="admin@example.ru" style="min-height:44px;border-radius:8px;border:1px solid #c9cec6;padding:0 12px;font:inherit">
-            <button id="monitor-status-load" type="button" style="min-height:44px;border:0;border-radius:8px;padding:0 16px;background:#0f766e;color:#fff;font-weight:750;cursor:pointer">Показать статус</button>
+            <input id="monitor-status-token" type="text" placeholder="Токен из ссылки управления" style="min-height:44px;border-radius:8px;border:1px solid #c9cec6;padding:0 12px;font:inherit">
+            <button id="monitor-status-load" type="button" style="min-height:44px;border:0;border-radius:8px;padding:0 16px;background:#0f766e;color:#fff;font-weight:750;cursor:pointer">Открыть подписки</button>
             <div id="monitor-status-message" class="lead" style="margin-top:0"></div>
             <div id="monitor-status-table"></div>
           </div>
         </section>
         <script>
         (() => {
-          const emailInput = document.getElementById('monitor-status-email');
+          const tokenInput = document.getElementById('monitor-status-token');
           const loadBtn = document.getElementById('monitor-status-load');
           const msg = document.getElementById('monitor-status-message');
           const tableBox = document.getElementById('monitor-status-table');
-          if (!emailInput || !loadBtn || !msg || !tableBox) return;
-          loadBtn.addEventListener('click', async () => {
+          if (!tokenInput || !loadBtn || !msg || !tableBox) return;
+
+          const params = new URLSearchParams(window.location.search);
+          const queryToken = (params.get('token') || '').trim();
+          if (queryToken) {
+            tokenInput.value = queryToken;
+          }
+
+          async function loadStatus() {
             msg.textContent = '';
             tableBox.innerHTML = '';
             loadBtn.disabled = true;
             try {
-              const email = encodeURIComponent((emailInput.value || '').trim());
-              const resp = await fetch('/api/subscriptions/monitoring?email=' + email + '&limit=50');
+              const token = encodeURIComponent((tokenInput.value || '').trim());
+              const resp = await fetch('/api/subscriptions/monitoring?token=' + token + '&limit=50');
               const data = await resp.json();
               if (!resp.ok) {
-                throw new Error((data && data.detail) || 'Не удалось получить статус.');
+                throw new Error((data && data.detail) || 'Не удалось открыть приватную страницу подписки.');
               }
               msg.textContent = `План: ${data.plan}, лимит: ${data.domain_limit}. Подписок: ${(data.items || []).length}.`;
               const items = Array.isArray(data.items) ? data.items : [];
@@ -588,9 +795,14 @@ def render_static_page(page_key: str) -> str:
                   <td>${item.host}:${item.port}</td>
                   <td>${item.plan}</td>
                   <td>${item.confirmed ? 'yes' : 'no'}</td>
+                  <td>${item.ownership_verified ? 'yes' : (item.plan === 'pro' ? 'no' : 'n/a')}</td>
                   <td>${item.enabled ? 'yes' : 'no'}</td>
                   <td>${item.last_sent_at || '—'}</td>
                   <td>${item.next_run_at || '—'}</td>
+                  <td>
+                    ${item.confirmed && item.enabled ? `<button data-run-now="${item.id}" type="button" style="min-height:36px;border:0;border-radius:8px;padding:0 12px;background:#0f766e;color:#fff;font:inherit;font-weight:750;cursor:pointer">Запустить</button>` : ''}
+                    ${item.plan === 'pro' && !item.ownership_verified ? `<button data-own-challenge="${item.id}" type="button" style="min-height:36px;border:0;border-radius:8px;padding:0 12px;background:#315a9b;color:#fff;font:inherit;font-weight:750;cursor:pointer;margin-left:6px">Challenge</button><button data-own-verify="${item.id}" type="button" style="min-height:36px;border:0;border-radius:8px;padding:0 12px;background:#6b7280;color:#fff;font:inherit;font-weight:750;cursor:pointer;margin-left:6px">Verify</button>` : ''}
+                  </td>
                 </tr>
               `).join('');
               tableBox.innerHTML = `
@@ -600,20 +812,91 @@ def render_static_page(page_key: str) -> str:
                       <th>Домен</th>
                       <th>План</th>
                       <th>Confirmed</th>
+                      <th>Ownership</th>
                       <th>Enabled</th>
                       <th>Last sent</th>
                       <th>Next run</th>
+                      <th>Действие</th>
                     </tr>
                   </thead>
                   <tbody>${rows}</tbody>
                 </table>
               `;
+              tableBox.querySelectorAll('[data-run-now]').forEach((button) => {
+                button.addEventListener('click', async () => {
+                  const id = button.getAttribute('data-run-now');
+                  button.disabled = true;
+                  try {
+                    const resp = await fetch('/api/subscriptions/monitoring/' + encodeURIComponent(id) + '/run-now?token=' + token, {
+                      method: 'POST'
+                    });
+                    const runData = await resp.json();
+                    if (!resp.ok) {
+                      throw new Error((runData && runData.detail) || 'Не удалось запустить проверку.');
+                    }
+                    msg.textContent = 'Ручная проверка поставлена в очередь.';
+                  } catch (error) {
+                    msg.textContent = error.message || 'Ошибка запуска.';
+                  } finally {
+                    button.disabled = false;
+                  }
+                });
+              });
+              tableBox.querySelectorAll('[data-own-challenge]').forEach((button) => {
+                button.addEventListener('click', async () => {
+                  const id = button.getAttribute('data-own-challenge');
+                  const method = window.prompt('Метод ownership: dns_txt или http_file', 'dns_txt');
+                  if (!method) return;
+                  button.disabled = true;
+                  try {
+                    const resp = await fetch('/api/subscriptions/monitoring/' + encodeURIComponent(id) + '/ownership/challenge?token=' + token, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ method: method.trim() })
+                    });
+                    const data = await resp.json();
+                    if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось создать challenge.');
+                    if (data.method === 'dns_txt') {
+                      msg.textContent = 'DNS challenge: TXT ' + data.record_name + ' = ' + data.record_value;
+                    } else {
+                      msg.textContent = 'HTTP challenge: ' + data.file_url + ' -> ' + data.file_content;
+                    }
+                  } catch (error) {
+                    msg.textContent = error.message || 'Ошибка challenge.';
+                  } finally {
+                    button.disabled = false;
+                  }
+                });
+              });
+              tableBox.querySelectorAll('[data-own-verify]').forEach((button) => {
+                button.addEventListener('click', async () => {
+                  const id = button.getAttribute('data-own-verify');
+                  button.disabled = true;
+                  try {
+                    const resp = await fetch('/api/subscriptions/monitoring/' + encodeURIComponent(id) + '/ownership/verify?token=' + token, {
+                      method: 'POST'
+                    });
+                    const data = await resp.json();
+                    if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось проверить ownership.');
+                    msg.textContent = data.ownership_verified ? 'Ownership подтвержден.' : ('Ownership не подтвержден: ' + (data.detail || 'нет данных'));
+                  } catch (error) {
+                    msg.textContent = error.message || 'Ошибка verify.';
+                  } finally {
+                    button.disabled = false;
+                  }
+                });
+              });
             } catch (error) {
               msg.textContent = error.message || 'Ошибка загрузки.';
             } finally {
               loadBtn.disabled = false;
             }
-          });
+          }
+
+          loadBtn.addEventListener('click', loadStatus);
+          if (queryToken) {
+            loadStatus();
+          }
         })();
         </script>
         """
@@ -674,13 +957,15 @@ def render_static_page(page_key: str) -> str:
     <header>
       <h1><a class="brand-link" href="/">TLS Audit</a></h1>
       <p class="lead">{escape(page["description"])}</p>
+      <p class="lead">Версия методики: {escape(str(page.get("version", "0.1")))}. Последнее обновление: {escape(updated)}.</p>
       <a class="back" href="/">Вернуться к проверке</a>
     </header>
     <div class="content">
       {sections}
+      {tables}
     </div>
     <footer>
-      <p>Обновлено: 12.05.2026. Контакт: {CONTACT_LINK}. Документы нужно финально проверить перед широким публичным продвижением сервиса.</p>
+      <p>Обновлено: {escape(updated)}. Контакт: {CONTACT_LINK}. Документы нужно финально проверить перед широким публичным продвижением сервиса.</p>
       <nav>
         <a href="/ssl-certificate-check">Проверка SSL-сертификата</a>
         <a href="/tls-versions-check">TLS 1.2/1.3</a>
@@ -691,6 +976,9 @@ def render_static_page(page_key: str) -> str:
         <a href="/caddy-tls-config">Caddy TLS</a>
         <a href="/haproxy-tls-config">HAProxy TLS</a>
         <a href="/methodology">Методика</a>
+        <a href="/tls-audit-vs-ssl-labs">TLS Audit vs SSL Labs</a>
+        <a href="/methodology-changelog">Changelog методики</a>
+        <a href="/sample-reports">Примеры отчетов</a>
         <a href="/privacy">Политика обработки данных</a>
         <a href="/terms">Пользовательское соглашение</a>
         <a href="/cookies">Cookies</a>
@@ -959,6 +1247,24 @@ def render_frontend() -> str:
       min-width: 0;
       max-width: 100%;
     }
+    .evidence-box {
+      margin-top: 8px;
+      padding: 10px 12px;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      background: #fbfcfa;
+    }
+    .evidence-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .evidence-meta .chip {
+      min-height: 24px;
+      font-size: 12px;
+      font-weight: 750;
+    }
     .finding p, .recommendation p { overflow-wrap: anywhere; }
     .detail-list {
       margin: 8px 0 0;
@@ -1176,6 +1482,23 @@ def render_frontend() -> str:
 		        <h2>Что это за сервис</h2>
 		        <p>TLS Audit проверяет публичную HTTPS/TLS-конфигурацию сайта, формирует понятный отчёт с оценкой и помогает поддерживать безопасность через подписки на мониторинг.</p>
 		      </div>
+          <div class="span-12 compare-strip">
+            <div class="compare-card">
+              <div class="compare-label">Методика</div>
+              <div class="compare-value">v0.2</div>
+              <p class="muted" style="margin-top:6px">Публичная страница с логикой оценки, ограничениями и changelog.</p>
+            </div>
+            <div class="compare-card">
+              <div class="compare-label">Позиционирование</div>
+              <div class="compare-value">Не замена SSL Labs</div>
+              <p class="muted" style="margin-top:6px">TLS Audit объясняет конфигурацию по-русски и не обещает буквальное совпадение оценок.</p>
+            </div>
+            <div class="compare-card">
+              <div class="compare-label">Публичный отчёт</div>
+              <div class="compare-value">/scan?job=...</div>
+              <p class="muted" style="margin-top:6px">Завершенный отчет остается доступным по прямой ссылке и может использоваться как рабочий артефакт.</p>
+            </div>
+          </div>
 	      <section>
 	        <h2>Проверяем</h2>
 	        <ul>
@@ -1217,6 +1540,7 @@ def render_frontend() -> str:
 	      <section>
 	        <h2>Границы</h2>
 	        <ul>
+	          <li>оценка TLS Audit не эквивалентна SSL Labs и должна читаться вместе с причинами и рекомендациями;</li>
 	          <li>сервис предназначен для своих доменов и разрешённых проверок;</li>
 	          <li>приватные адреса и служебные сети блокируются;</li>
 	          <li>бесплатный мониторинг ограничен одним доменом на email;</li>
@@ -1244,6 +1568,9 @@ def render_frontend() -> str:
         <a href="/caddy-tls-config">Caddy TLS</a>
         <a href="/haproxy-tls-config">HAProxy TLS</a>
         <a href="/methodology">Методика</a>
+        <a href="/tls-audit-vs-ssl-labs">TLS Audit vs SSL Labs</a>
+        <a href="/methodology-changelog">Changelog</a>
+        <a href="/sample-reports">Примеры отчетов</a>
         <a href="/privacy">Политика данных</a>
         <a href="/terms">Условия</a>
         <a href="/cookies">Cookies</a>
@@ -1457,7 +1784,8 @@ def render_frontend() -> str:
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        subMsg.innerHTML = 'Подписка создана. Подтверждение: <a target="_blank" rel="noopener" href="' + escapeHtml(result.confirm_url) + '">ссылка</a>';
+        const sentLabel = result.confirmation_sent ? 'Письмо отправлено.' : 'Письмо не отправлено (проверь SMTP).';
+        subMsg.innerHTML = 'Статус: ожидает подтверждения. ' + sentLabel + ' Подтвердить: <a target="_blank" rel="noopener" href="' + escapeHtml(result.confirm_url) + '">ссылка</a>. Ссылка управления появится после подтверждения.';
       } catch (error) {
         subMsg.textContent = error.message || 'Не удалось создать подписку.';
       } finally {
@@ -1484,6 +1812,7 @@ def render_frontend() -> str:
       const recommendations = report.recommendations || [];
       const supportedProtocols = protocols.filter((item) => item.supported).map((item) => item.version);
       const addresses = status?.addresses || report.raw?.basic_scanner?.addresses || [];
+      const provenanceSources = ((report.raw || {}).provenance || {}).sources || [];
 
       const certDays = cert.expires_in_days;
       const certChipClass = cert.expired ? 'bad' : certDays !== null && certDays !== undefined && certDays <= 30 ? 'warn' : 'good';
@@ -1524,6 +1853,10 @@ def render_frontend() -> str:
           <section class="span-12 hidden" id="compare-section">
             <h2>Было/стало</h2>
             <div id="compare-content"></div>
+          </section>
+          <section class="span-12">
+            <h2>Источники проверки</h2>
+            ${renderEvidenceOverview(report, jobId, provenanceSources)}
           </section>
           <section class="span-6">
             <h2>Критично</h2>
@@ -1781,15 +2114,103 @@ def render_frontend() -> str:
 
     function renderFindingDetail(finding) {
       const details = finding.details || [];
-      if (details.length <= 1) {
-        return `<p>${escapeHtml(finding.detail || '')}</p>`;
-      }
-      return `
+      const body = details.length <= 1
+        ? `<p>${escapeHtml(finding.detail || '')}</p>`
+        : `
         <p>${escapeHtml(finding.detail || '')}</p>
         <ul class="detail-list">
           ${details.map((detail) => `<li>${escapeHtml(detail)}</li>`).join('')}
         </ul>
       `;
+      return body + renderFindingEvidence(finding.evidence || {});
+    }
+
+    function renderFindingEvidence(evidence) {
+      if (!evidence || !Object.keys(evidence).length) return '';
+      const source = prettySourceLabel(evidence.source || '');
+      const facts = [
+        source ? chip('Источник: ' + source, 'info') : '',
+        evidence.id ? chip('Проверка: ' + evidence.id, 'info') : '',
+        evidence.cve ? chip('CVE: ' + evidence.cve, 'warn') : '',
+        evidence.cwe ? chip('CWE: ' + evidence.cwe, 'warn') : '',
+        evidence.severity ? chip('Scanner severity: ' + evidence.severity, 'info') : ''
+      ].filter(Boolean);
+      if (!facts.length) return '';
+      return `<div class="evidence-meta">${facts.join('')}</div>`;
+    }
+
+    function renderEvidenceOverview(report, jobId, sources) {
+      if (!Array.isArray(sources) || !sources.length) {
+        return '<p class="muted">Источник данных еще не нормализован для этого отчета.</p>';
+      }
+      const shareUrl = '/scan?job=' + encodeURIComponent(jobId);
+      return `
+        <div class="evidence-box" style="margin-bottom:12px">
+          <p><strong>Важно:</strong> TLS Audit показывает не только итог, но и происхождение данных. Эта оценка не эквивалентна SSL Labs и должна читаться вместе с evidence и рекомендациями.</p>
+          <p class="muted" style="margin-top:8px">Публичная ссылка на отчет: <a href="${escapeHtml(shareUrl)}">${escapeHtml(shareUrl)}</a></p>
+        </div>
+        <table>
+          <thead><tr><th>Источник</th><th>Статус</th><th>Версия</th><th>Время</th><th>Ключевые данные</th></tr></thead>
+          <tbody>
+            ${sources.map((item) => `
+              <tr>
+                <td>${escapeHtml(item.label || item.id || '')}</td>
+                <td>${sourceStatusChip(item.status)}</td>
+                <td>${escapeHtml(item.version || 'нет данных')}</td>
+                <td>${escapeHtml(formatEvidenceTime(item.scanned_at))}</td>
+                <td>${escapeHtml(sourceKeyFacts(item))}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function prettySourceLabel(value) {
+      const key = String(value || '');
+      if (key === 'basic_scanner') return 'Baseline scanner';
+      if (key === 'testssl') return 'testssl.sh';
+      if (key === 'dns_probe') return 'DNS probe';
+      if (key === 'openssl') return 'OpenSSL / Python SSL probe';
+      if (key === 'http_headers') return 'HTTP header probe';
+      return key || 'неизвестно';
+    }
+
+    function sourceStatusChip(status) {
+      const normalized = String(status || '').toLowerCase();
+      const tone = normalized === 'done' ? 'good' : normalized === 'error' ? 'bad' : normalized === 'disabled' ? 'warn' : 'info';
+      const text = normalized === 'done'
+        ? 'готово'
+        : normalized === 'error'
+          ? 'ошибка'
+          : normalized === 'disabled'
+            ? 'выключено'
+            : normalized === 'no_data'
+              ? 'нет данных'
+              : normalized || 'неизвестно';
+      return chip(text, tone);
+    }
+
+    function sourceKeyFacts(item) {
+      const facts = [];
+      if (Array.isArray(item.addresses) && item.addresses.length) {
+        facts.push('IP: ' + item.addresses.join(', '));
+      }
+      if (item.target_ip) {
+        facts.push('target IP: ' + item.target_ip);
+      }
+      if (item.duration_seconds !== undefined && item.duration_seconds !== null && item.duration_seconds !== '') {
+        facts.push('duration: ' + item.duration_seconds + 's');
+      }
+      if (item.note) {
+        facts.push(item.note);
+      }
+      return facts.join(' | ') || 'нет дополнительных данных';
+    }
+
+    function formatEvidenceTime(value) {
+      if (value === undefined || value === null || value === '') return 'нет данных';
+      return String(value);
     }
 
     function renderRecommendations(recommendations) {

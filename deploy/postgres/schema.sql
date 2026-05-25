@@ -102,12 +102,15 @@ CREATE TABLE IF NOT EXISTS monitor_subscriptions (
     id BIGSERIAL PRIMARY KEY,
     host TEXT NOT NULL,
     port INTEGER NOT NULL DEFAULT 443,
-    email TEXT NOT NULL UNIQUE,
+    email TEXT NOT NULL,
     token TEXT NOT NULL UNIQUE,
     enabled BOOLEAN NOT NULL DEFAULT true,
     confirmed BOOLEAN NOT NULL DEFAULT false,
     interval_seconds INTEGER NOT NULL DEFAULT 604800 CHECK (interval_seconds >= 604800),
     plan TEXT NOT NULL DEFAULT 'free',
+    ownership_method TEXT NOT NULL DEFAULT '',
+    ownership_token TEXT NOT NULL DEFAULT '',
+    ownership_verified_at TIMESTAMPTZ,
     last_sent_at TIMESTAMPTZ,
     next_run_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -119,6 +122,18 @@ ON monitor_subscriptions (enabled, confirmed, next_run_at);
 
 ALTER TABLE monitor_subscriptions
 ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free';
+ALTER TABLE monitor_subscriptions
+ADD COLUMN IF NOT EXISTS ownership_method TEXT NOT NULL DEFAULT '';
+ALTER TABLE monitor_subscriptions
+ADD COLUMN IF NOT EXISTS ownership_token TEXT NOT NULL DEFAULT '';
+ALTER TABLE monitor_subscriptions
+ADD COLUMN IF NOT EXISTS ownership_verified_at TIMESTAMPTZ;
+
+ALTER TABLE monitor_subscriptions
+DROP CONSTRAINT IF EXISTS monitor_subscriptions_email_key;
+
+CREATE UNIQUE INDEX IF NOT EXISTS monitor_subscriptions_email_host_port_idx
+ON monitor_subscriptions (email, host, port);
 
 CREATE TABLE IF NOT EXISTS billing_accounts (
     email TEXT PRIMARY KEY,
@@ -136,6 +151,13 @@ CREATE TABLE IF NOT EXISTS subscription_alert_deliveries (
     alert_key TEXT NOT NULL,
     last_sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (subscription_id, alert_key)
+);
+
+CREATE TABLE IF NOT EXISTS subscription_report_deliveries (
+    subscription_id BIGINT NOT NULL REFERENCES monitor_subscriptions(id) ON DELETE CASCADE,
+    scan_id TEXT NOT NULL,
+    sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (subscription_id, scan_id)
 );
 
 CREATE OR REPLACE FUNCTION set_updated_at()

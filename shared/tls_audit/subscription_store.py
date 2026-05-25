@@ -15,6 +15,9 @@ class MonitorSubscription:
     email: str
     token: str
     plan: str = "free"
+    ownership_method: str = ""
+    ownership_token: str = ""
+    ownership_verified_at: Optional[datetime] = None
     enabled: bool = True
     confirmed: bool = False
     interval_seconds: int = DEFAULT_WEEKLY_INTERVAL_SECONDS
@@ -61,10 +64,36 @@ class NullSubscriptionStore:
     def list_by_email(self, email: str, limit: int = 20) -> List[MonitorSubscription]:
         return []
 
+    def begin_ownership_verification(
+        self,
+        subscription_id: int,
+        method: str,
+        token: str,
+    ) -> Optional[MonitorSubscription]:
+        return None
+
+    def mark_ownership_verified(
+        self,
+        subscription_id: int,
+        when: Optional[datetime] = None,
+    ) -> Optional[MonitorSubscription]:
+        return None
+
     def due(self, now: Optional[datetime] = None, limit: int = 20) -> List[MonitorSubscription]:
         return []
 
     def mark_sent(self, subscription_id: int, when: Optional[datetime] = None) -> None:
+        return
+
+    def should_send_report(self, subscription_id: int, scan_id: str) -> bool:
+        return True
+
+    def mark_report_sent(
+        self,
+        subscription_id: int,
+        scan_id: str,
+        when: Optional[datetime] = None,
+    ) -> None:
         return
 
     def should_send_alert(
@@ -91,6 +120,7 @@ class InMemorySubscriptionStore(NullSubscriptionStore):
     def __init__(self) -> None:
         self.items: Dict[int, MonitorSubscription] = {}
         self.alert_sent: Dict[tuple[int, str], datetime] = {}
+        self.report_sent: Dict[tuple[int, str], datetime] = {}
         self._id = 0
 
     def upsert_pending(
@@ -104,12 +134,18 @@ class InMemorySubscriptionStore(NullSubscriptionStore):
         email_norm = normalize_email(email)
         now = utcnow()
         for item in self.items.values():
-            if normalize_email(item.email) == email_norm and item.enabled:
-                item.host = host
-                item.port = port
+            if (
+                normalize_email(item.email) == email_norm
+                and item.host == host
+                and item.port == port
+            ):
+                item.enabled = True
                 item.confirmed = False
                 item.plan = normalize_plan(plan)
                 item.token = uuid4().hex
+                item.ownership_method = ""
+                item.ownership_token = ""
+                item.ownership_verified_at = None
                 item.interval_seconds = int(interval_seconds)
                 item.next_run_at = now + timedelta(seconds=item.interval_seconds)
                 item.updated_at = now
@@ -122,6 +158,9 @@ class InMemorySubscriptionStore(NullSubscriptionStore):
             email=email_norm,
             token=uuid4().hex,
             plan=normalize_plan(plan),
+            ownership_method="",
+            ownership_token="",
+            ownership_verified_at=None,
             enabled=True,
             confirmed=False,
             interval_seconds=int(interval_seconds),
@@ -163,12 +202,47 @@ class InMemorySubscriptionStore(NullSubscriptionStore):
         items.sort(key=lambda item: item.id, reverse=True)
         return items[: max(1, int(limit))]
 
+    def begin_ownership_verification(
+        self,
+        subscription_id: int,
+        method: str,
+        token: str,
+    ) -> Optional[MonitorSubscription]:
+        item = self.items.get(int(subscription_id))
+        if not item:
+            return None
+        item.ownership_method = str(method or "").strip().lower()
+        item.ownership_token = str(token or "").strip()
+        item.ownership_verified_at = None
+        item.updated_at = utcnow()
+        return item
+
+    def mark_ownership_verified(
+        self,
+        subscription_id: int,
+        when: Optional[datetime] = None,
+    ) -> Optional[MonitorSubscription]:
+        item = self.items.get(int(subscription_id))
+        if not item:
+            return None
+        when = when or utcnow()
+        item.ownership_verified_at = when
+        item.updated_at = when
+        return item
+
     def due(self, now: Optional[datetime] = None, limit: int = 20) -> List[MonitorSubscription]:
         now = now or utcnow()
         items = [
             item
             for item in self.items.values()
-            if item.enabled and item.confirmed and item.next_run_at and item.next_run_at <= now
+            if item.enabled
+            and item.confirmed
+            and item.next_run_at
+            and item.next_run_at <= now
+            and (
+                item.plan == "free"
+                or (item.plan == "support" and item.ownership_verified_at is not None)
+            )
         ]
         items.sort(key=lambda item: item.next_run_at or now)
         return items[: max(1, int(limit))]
@@ -181,6 +255,20 @@ class InMemorySubscriptionStore(NullSubscriptionStore):
         item.last_sent_at = when
         item.next_run_at = when + timedelta(seconds=item.interval_seconds)
         item.updated_at = when
+
+    def should_send_report(self, subscription_id: int, scan_id: str) -> bool:
+        key = (int(subscription_id), str(scan_id))
+        return key not in self.report_sent
+
+    def mark_report_sent(
+        self,
+        subscription_id: int,
+        scan_id: str,
+        when: Optional[datetime] = None,
+    ) -> None:
+        when = when or utcnow()
+        key = (int(subscription_id), str(scan_id))
+        self.report_sent[key] = when
 
     def should_send_alert(
         self,
@@ -228,19 +316,21 @@ class PostgresSubscriptionStore(NullSubscriptionStore):
                 """
                 INSERT INTO monitor_subscriptions (
                     host, port, email, token, enabled, confirmed, interval_seconds,
-                    next_run_at, plan
+                    next_run_at, plan, ownership_method, ownership_token, ownership_verified_at
                 )
                 VALUES (
                     %(host)s, %(port)s, %(email)s, %(token)s, true, false, %(interval_seconds)s,
-                    now() + (%(interval_seconds)s * interval '1 second'), %(plan)s
+                    now() + (%(interval_seconds)s * interval '1 second'), %(plan)s,
+                    '', '', NULL
                 )
-                ON CONFLICT (email) DO UPDATE SET
-                    host = EXCLUDED.host,
-                    port = EXCLUDED.port,
+                ON CONFLICT (email, host, port) DO UPDATE SET
                     token = EXCLUDED.token,
                     enabled = true,
                     confirmed = false,
                     plan = EXCLUDED.plan,
+                    ownership_method = '',
+                    ownership_token = '',
+                    ownership_verified_at = NULL,
                     interval_seconds = EXCLUDED.interval_seconds,
                     next_run_at = EXCLUDED.next_run_at
                 RETURNING *
@@ -326,6 +416,10 @@ class PostgresSubscriptionStore(NullSubscriptionStore):
                 SELECT * FROM monitor_subscriptions
                 WHERE enabled = true
                   AND confirmed = true
+                  AND (
+                    plan = 'free'
+                    OR (plan = 'support' AND ownership_verified_at IS NOT NULL)
+                  )
                   AND next_run_at <= coalesce(%(now)s, now())
                 ORDER BY next_run_at ASC
                 LIMIT %(limit)s
@@ -333,6 +427,48 @@ class PostgresSubscriptionStore(NullSubscriptionStore):
                 {"now": now, "limit": max(1, int(limit))},
             ).fetchall()
         return [subscription_from_row(row) for row in rows]
+
+    def begin_ownership_verification(
+        self,
+        subscription_id: int,
+        method: str,
+        token: str,
+    ) -> Optional[MonitorSubscription]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                UPDATE monitor_subscriptions
+                SET ownership_method = %(method)s,
+                    ownership_token = %(token)s,
+                    ownership_verified_at = NULL
+                WHERE id = %(id)s
+                RETURNING *
+                """,
+                {
+                    "id": int(subscription_id),
+                    "method": str(method or "").strip().lower(),
+                    "token": str(token or "").strip(),
+                },
+            ).fetchone()
+        return subscription_from_row(row) if row else None
+
+    def mark_ownership_verified(
+        self,
+        subscription_id: int,
+        when: Optional[datetime] = None,
+    ) -> Optional[MonitorSubscription]:
+        when = when or utcnow()
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                UPDATE monitor_subscriptions
+                SET ownership_verified_at = %(when)s
+                WHERE id = %(id)s
+                RETURNING *
+                """,
+                {"id": int(subscription_id), "when": when},
+            ).fetchone()
+        return subscription_from_row(row) if row else None
 
     def mark_sent(self, subscription_id: int, when: Optional[datetime] = None) -> None:
         when = when or utcnow()
@@ -345,6 +481,41 @@ class PostgresSubscriptionStore(NullSubscriptionStore):
                 WHERE id = %(id)s
                 """,
                 {"id": int(subscription_id), "when": when},
+            )
+
+    def should_send_report(self, subscription_id: int, scan_id: str) -> bool:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT 1
+                FROM subscription_report_deliveries
+                WHERE subscription_id = %(subscription_id)s
+                  AND scan_id = %(scan_id)s
+                LIMIT 1
+                """,
+                {"subscription_id": int(subscription_id), "scan_id": str(scan_id)},
+            ).fetchone()
+        return row is None
+
+    def mark_report_sent(
+        self,
+        subscription_id: int,
+        scan_id: str,
+        when: Optional[datetime] = None,
+    ) -> None:
+        when = when or utcnow()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO subscription_report_deliveries (subscription_id, scan_id, sent_at)
+                VALUES (%(subscription_id)s, %(scan_id)s, %(sent_at)s)
+                ON CONFLICT (subscription_id, scan_id) DO NOTHING
+                """,
+                {
+                    "subscription_id": int(subscription_id),
+                    "scan_id": str(scan_id),
+                    "sent_at": when,
+                },
             )
 
     def connect(self):
@@ -434,6 +605,9 @@ def subscription_from_row(row: Dict[str, object]) -> MonitorSubscription:
         email=str(row["email"]),
         token=str(row["token"]),
         plan=normalize_plan(row.get("plan") or "free"),
+        ownership_method=str(row.get("ownership_method") or ""),
+        ownership_token=str(row.get("ownership_token") or ""),
+        ownership_verified_at=row.get("ownership_verified_at"),
         enabled=bool(row["enabled"]),
         confirmed=bool(row["confirmed"]),
         interval_seconds=int(row["interval_seconds"]),

@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from shared.tls_audit.recommendations import TLS12_13_ONLY
 from shared.tls_audit.archive import NullArchiveStore, create_archive_store, job_to_archive_dict
-from shared.tls_audit.adapter import convert_findings
+from shared.tls_audit.adapter import build_basic_provenance, convert_findings
 from shared.tls_audit.compare import compare_reports, summarize_report
 from shared.tls_audit.denylist import Denylist
 from shared.tls_audit.jobs import InMemoryJobStore, JobRecord
@@ -109,6 +109,25 @@ class SharedScoringTests(unittest.TestCase):
         self.assertEqual(scored.score, 40)
         self.assertEqual(scored.raw["scoring"]["raw_score"], 0)
         self.assertTrue(all("до D" in item for item in scored.summary))
+
+    def test_basic_provenance_includes_scanner_versions_and_sources(self) -> None:
+        provenance = build_basic_provenance(
+            {
+                "host": "example.ru",
+                "port": 443,
+                "scanned_at": "2026-05-25T10:00:00+00:00",
+                "addresses": ["93.184.216.34"],
+                "headers": {"server": "nginx"},
+            }
+        )
+
+        self.assertEqual(provenance["report_version"], "0.2")
+        self.assertEqual(
+            [item["id"] for item in provenance["sources"]],
+            ["basic_scanner", "dns_probe", "openssl", "http_headers"],
+        )
+        self.assertTrue(provenance["sources"][0]["version"])
+        self.assertEqual(provenance["sources"][1]["addresses"], ["93.184.216.34"])
 
 
 class SharedValidationTests(unittest.TestCase):

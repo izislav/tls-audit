@@ -1,6 +1,13 @@
 # TLS Audit Work Plan
 
-This file tracks the sequential plan from proof-of-concept to production MVP.
+Version: `0.2`
+
+This file tracks the main product plan after the first public MVP. Version
+`0.2` means the roadmap is organized around three stages:
+
+1. become a trustworthy public diagnostic tool;
+2. turn `Pro` into a real private monitoring product;
+3. differentiate from SSL Labs with Russian-language operational value.
 
 ## Completed
 
@@ -129,17 +136,101 @@ This file tracks the sequential plan from proof-of-concept to production MVP.
 
 ## Current Stage
 
-Live MVP deployed on the VPS; continue public-launch hardening and demand
-generation from `docs/growth-plan.md`.
+Live MVP deployed on the VPS. The current task is to move from "working MVP" to
+"publicly trustworthy tool" before adding more surface area.
 
-## Next Stages
+## Plan 0.2
 
-1. Make sure `admin@tlsaudit.ru` or equivalent aliases deliver mail.
-2. Connect real SMTP credentials for email alerts.
-3. Continue production hardening:
-   - CAPTCHA provider integration;
-4. Add optional PDF export.
-5. Add monitoring/notifications for certificate expiry.
+### Stage 1 - Public Trust
+
+Goal: users should understand why the report can be trusted, what it checks,
+and where its limits are.
+
+Deliverables:
+
+1. public methodology page;
+2. comparison page: `TLS Audit vs SSL Labs`;
+3. clear disclaimer: not a replacement for SSL Labs, but a Russian-language
+   diagnostic assistant;
+4. evidence blocks in reports;
+5. scanner versions in reports;
+6. methodology changelog;
+7. sample reports;
+8. saved public report links;
+9. public report links that can be shared safely.
+
+Details:
+
+- methodology must explain what is checked, how it affects the public grade,
+  why it matters, what reference backs it, how to fix it, and what is not
+  checked;
+- evidence must show which facts came from the baseline Python scanner,
+  `testssl.sh`, OpenSSL, HTTP header probes, and DNS probes;
+- reports should stay readable, but important conclusions must be inspectable
+  by source, timestamp, scanner version, and short raw snippet.
+
+### Stage 2 - Pro As Product
+
+Goal: `Pro` must stop being a button and become a private monitoring product
+with clear ownership and predictable value.
+
+Minimum `Pro` scope:
+
+1. email confirmation;
+2. ownership verification by DNS TXT or HTTP file;
+3. `1-10` domains per owner;
+4. weekly report;
+5. alerts on grade drop, certificate expiry, and TLS/config changes;
+6. diff between checks;
+7. CSV/JSON export.
+
+Rules:
+
+- public scan and private monitoring are different trust zones;
+- private monitoring must be tied to verified owner identity;
+- expanded recurring security reports must not be sent without ownership
+  verification;
+- monitoring endpoints must not remain openly callable.
+
+### Stage 3 - Differentiation
+
+Goal: win not by copying SSL Labs, but by being more useful for Russian-speaking
+operators and teams.
+
+Unique value:
+
+1. Russian explanations of what is broken and how to fix it;
+2. ready configs for Nginx, Apache, Caddy, and HAProxy;
+3. separate GOST / Russian CA compatibility block;
+4. monitoring of changes over time;
+5. "what changed after the fix" view;
+6. executive report for owners plus technical report for admins;
+7. API/webhook surface for agencies and hosting providers.
+
+## Priority Roadmap
+
+### Urgent
+
+1. close monitoring API behind ownership-controlled access;
+2. add email confirmation;
+3. add ownership verification for `Pro` domains;
+4. make grading methodology transparent;
+5. add raw evidence and scanner versions.
+
+### Then
+
+1. decide whether to keep Python-generated frontend or move to
+   `Jinja + static JS` / `React`;
+2. add accounts if signed-email ownership stops being enough;
+3. add billing provider integration;
+4. add dashboard;
+5. add webhook/email alert pack;
+6. compare recommendations against Mozilla recommended configurations.
+
+## Working Interpretation
+
+Version `0.2` means feature growth is no longer the default priority. Trust,
+explainability, ownership, and product boundaries come first.
 
 ## Deferred
 
