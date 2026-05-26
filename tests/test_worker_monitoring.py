@@ -10,6 +10,24 @@ from shared.tls_audit.monitoring import MonitoringDiff, FindingSummary
 
 
 class WorkerMonitoringTests(unittest.TestCase):
+    def test_alert_key_for_critical_added_uses_code(self) -> None:
+        event = MonitoringEvent(
+            event_type="critical_added",
+            severity="critical",
+            title="Критичная проблема",
+            payload={"code": "certificate_expired", "title": "Сертификат истёк"},
+        )
+        self.assertEqual(worker.alert_key_for_event(event), "critical_added:certificate_expired")
+
+    def test_alert_key_for_legacy_tls_uses_protocols(self) -> None:
+        event = MonitoringEvent(
+            event_type="legacy_tls_enabled",
+            severity="high",
+            title="Включился устаревший TLS",
+            payload={"added_protocols": ["TLS 1.1", "TLS 1.0"]},
+        )
+        self.assertEqual(worker.alert_key_for_event(event), "legacy_tls_enabled:TLS 1.0,TLS 1.1")
+
     def test_handle_job_records_monitoring_snapshot_for_scheduled_scan(self) -> None:
         job_store = InMemoryJobStore()
         monitoring_store = InMemoryMonitoringStore()
@@ -88,7 +106,24 @@ class WorkerMonitoringTests(unittest.TestCase):
             "subscription_email": "admin@example.ru",
             "subscription_plan": "support",
         }
-        report = {"grade": "B", "score": 81, "summary": ["Есть замечания"], "findings": []}
+        report = {
+            "grade": "B",
+            "score": 81,
+            "summary": ["Есть замечания"],
+            "findings": [],
+            "raw": {
+                "provenance": {
+                    "sources": [
+                        {
+                            "id": "basic_scanner",
+                            "status": "done",
+                            "version": "0.2.1",
+                            "scanned_at": "2026-05-26T12:00:00Z",
+                        }
+                    ]
+                }
+            },
+        }
         diff = MonitoringDiff(
             grade_degraded=True,
             score_delta=-9,
@@ -111,6 +146,10 @@ class WorkerMonitoringTests(unittest.TestCase):
         self.assertIn("Изменения с прошлого скана: стало хуже", body)
         self.assertIn("баллы: -9", body)
         self.assertIn("новых проблем: 1, исправлено: 1", body)
+        self.assertIn("добавились: A", body)
+        self.assertIn("исправлены: B", body)
+        self.assertIn("Evidence:", body)
+        self.assertIn("basic_scanner: done, version=0.2.1", body)
         mark_sent.assert_called_once_with(7)
         mark_report_sent.assert_called_once_with(7, "job-1")
 
@@ -141,6 +180,39 @@ class WorkerMonitoringTests(unittest.TestCase):
         self.assertIn("базовый еженедельный отчёт", body)
         self.assertNotIn("Изменения с прошлого скана", body)
         self.assertNotIn("Главные замечания", body)
+
+    def test_top_findings_groups_repeated_titles(self) -> None:
+        report = {
+            "findings": [
+                {
+                    "severity": "medium",
+                    "title": "Сервер принимает слабый cipher suite",
+                    "detail": "AES256-SHA: CBC cipher without AEAD.",
+                },
+                {
+                    "severity": "medium",
+                    "title": "Сервер принимает слабый cipher suite",
+                    "detail": "ECDHE-RSA-AES128-SHA: CBC cipher without AEAD.",
+                },
+                {
+                    "severity": "high",
+                    "title": "TLS 1.0 включён",
+                    "detail": "",
+                },
+            ]
+        }
+        text = worker.top_findings(report, limit=3)
+        self.assertIn("TLS 1.0 включён", text)
+        self.assertIn("Сервер принимает слабый cipher suite (x2)", text)
+        self.assertIn("AES256-SHA: CBC cipher without AEAD.", text)
+
+    def test_format_certificate_status(self) -> None:
+        self.assertIn("требуется продление", worker.format_certificate_status(10, "2026-06-10T00:00:00Z"))
+        self.assertIn("истёк", worker.format_certificate_status(-2, "2026-05-01T00:00:00Z"))
+        self.assertEqual(worker.format_certificate_status(None, None), "нет данных")
+
+    def test_format_provenance_block_ignores_missing(self) -> None:
+        self.assertEqual(worker.format_provenance_block({}), "")
 
     def test_send_subscription_report_skips_duplicate_scan(self) -> None:
         job = {
@@ -259,7 +331,7 @@ class WorkerMonitoringTests(unittest.TestCase):
         send_email.assert_not_called()
         mark_alert_sent.assert_not_called()
 
-    def test_send_subscription_alert_report_ignores_non_certificate_events(self) -> None:
+    def test_send_subscription_alert_report_includes_grade_degraded_event(self) -> None:
         job = {
             "id": "job-6",
             "host": "alert.example.ru",
@@ -273,6 +345,36 @@ class WorkerMonitoringTests(unittest.TestCase):
                 severity="high",
                 title="Оценка TLS ухудшилась",
                 detail="score delta -6",
+            )
+        ]
+        report = {"grade": "B", "score": 83}
+        with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
+            worker.subscription_store, "should_send_alert", return_value=True
+        ), patch.object(
+            worker.subscription_store, "mark_alert_sent"
+        ) as mark_alert_sent, patch.dict(
+            os.environ,
+            {"SMTP_URL": "smtps://example:465"},
+            clear=False,
+        ):
+            worker.send_subscription_alert_report(job, events, report)
+        body = send_email.call_args.kwargs["body"]
+        self.assertIn("Оценка TLS ухудшилась", body)
+        mark_alert_sent.assert_called_once_with(12, "grade_degraded")
+
+    def test_send_subscription_alert_report_ignores_unimportant_events(self) -> None:
+        job = {
+            "id": "job-7",
+            "host": "alert.example.ru",
+            "subscription_id": 13,
+            "subscription_email": "admin@example.ru",
+            "subscription_plan": "support",
+        }
+        events = [
+            MonitoringEvent(
+                event_type="hsts_changed",
+                severity="medium",
+                title="Изменилась HSTS-конфигурация",
             )
         ]
         report = {"grade": "B", "score": 83}

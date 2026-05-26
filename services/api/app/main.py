@@ -2,7 +2,7 @@ import logging
 import secrets
 import subprocess
 from datetime import datetime, timezone
-from typing import Dict
+from typing import Dict, List
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
@@ -43,6 +43,7 @@ from shared.tls_audit.monitoring_store import (
 )
 from shared.tls_audit.monitoring_scheduler import schedule_domain_scan
 from shared.tls_audit.email_sender import send_email
+from shared.tls_audit.monitor_export import monitoring_export_to_csv
 import os
 
 
@@ -918,6 +919,34 @@ def list_monitor_subscription_events(token: str, limit: int = 30) -> Dict[str, o
     return {"email": normalized, "items": result_items, "manage_token": token}
 
 
+@app.get("/api/subscriptions/monitoring/export.json")
+def export_monitoring_json(token: str, limit: int = 50, events_limit: int = 20) -> Dict[str, object]:
+    normalized = require_monitor_owner_token(token)
+    payload = build_monitoring_export_payload(
+        normalized_email=normalized,
+        token=token,
+        limit=limit,
+        events_limit=events_limit,
+    )
+    payload["format"] = "json"
+    return payload
+
+
+@app.get("/api/subscriptions/monitoring/export.csv")
+def export_monitoring_csv(token: str, limit: int = 50, events_limit: int = 20) -> Response:
+    normalized = require_monitor_owner_token(token)
+    payload = build_monitoring_export_payload(
+        normalized_email=normalized,
+        token=token,
+        limit=limit,
+        events_limit=events_limit,
+    )
+    csv_text = monitoring_export_to_csv(payload)
+    filename = f"tlsaudit-monitoring-{normalized.replace('@', '_at_')}.csv"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(content=csv_text, media_type="text/csv; charset=utf-8", headers=headers)
+
+
 @app.get("/api/subscriptions/monitoring/confirm", response_class=HTMLResponse)
 def confirm_monitor_subscription(token: str) -> HTMLResponse:
     sub = subscription_store.confirm(token)
@@ -1184,6 +1213,50 @@ def iso_or_none(value) -> str | None:
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return str(value)
+
+
+def build_monitoring_export_payload(
+    normalized_email: str,
+    token: str,
+    limit: int = 50,
+    events_limit: int = 20,
+) -> Dict[str, object]:
+    items = subscription_store.list_by_email(normalized_email, limit=max(1, min(limit, 100)))
+    domains = monitoring_store.list_domains(limit=1000) if getattr(monitoring_store, "enabled", False) else []
+    domain_map = {(item.host, int(item.port)): item for item in domains}
+    per_domain_limit = max(1, min(50, int(events_limit)))
+    export_items: List[Dict[str, object]] = []
+    for sub in items:
+        domain = domain_map.get((sub.host, int(sub.port)))
+        events: List[Dict[str, object]] = []
+        if domain:
+            events = [
+                event_to_dict(item)
+                for item in monitoring_store.list_events(domain.id, limit=per_domain_limit)
+            ]
+        export_items.append(
+            {
+                "subscription_id": sub.id,
+                "host": sub.host,
+                "port": sub.port,
+                "plan": "pro" if sub.plan == "support" else sub.plan,
+                "enabled": sub.enabled,
+                "confirmed": sub.confirmed,
+                "ownership_method": sub.ownership_method,
+                "ownership_verified": sub.ownership_verified_at is not None,
+                "last_sent_at": iso_or_none(sub.last_sent_at),
+                "next_run_at": iso_or_none(sub.next_run_at),
+                "events": events,
+            }
+        )
+    return {
+        "email": normalized_email,
+        "generated_at": iso_or_none(datetime.now(timezone.utc)),
+        "manage_token": token,
+        "items": export_items,
+    }
+
+
 
 
 def send_confirmation_email(

@@ -686,6 +686,7 @@ STATIC_PAGES = {
         "title": "Статус подписок",
         "description": "Приватная страница управления подпиской мониторинга по защищенной ссылке из письма.",
         "path": "/monitor-status",
+        "version": "0.2",
         "sections": [
             (
                 "Назначение",
@@ -752,9 +753,13 @@ def render_static_page(page_key: str) -> str:
         sections += """
         <section>
           <h2>Проверка статуса</h2>
-          <div style="display:grid;gap:10px;max-width:860px">
-            <input id="monitor-status-token" type="text" placeholder="Токен из ссылки управления" style="min-height:44px;border-radius:8px;border:1px solid #c9cec6;padding:0 12px;font:inherit">
-            <button id="monitor-status-load" type="button" style="min-height:44px;border:0;border-radius:8px;padding:0 16px;background:#0f766e;color:#fff;font-weight:750;cursor:pointer">Открыть подписки</button>
+          <div class="monitor-status-form">
+            <input id="monitor-status-token" type="text" placeholder="Токен из ссылки управления">
+            <button id="monitor-status-load" type="button">Открыть подписки</button>
+            <div class="monitor-export-row">
+              <a id="monitor-export-json" class="ghost-button" href="#" target="_blank" rel="noopener">Экспорт JSON</a>
+              <a id="monitor-export-csv" class="ghost-button" href="#" target="_blank" rel="noopener">Экспорт CSV</a>
+            </div>
             <div id="monitor-status-message" class="lead" style="margin-top:0"></div>
             <div id="monitor-status-table"></div>
           </div>
@@ -765,6 +770,8 @@ def render_static_page(page_key: str) -> str:
           const loadBtn = document.getElementById('monitor-status-load');
           const msg = document.getElementById('monitor-status-message');
           const tableBox = document.getElementById('monitor-status-table');
+          const exportJson = document.getElementById('monitor-export-json');
+          const exportCsv = document.getElementById('monitor-export-csv');
           if (!tokenInput || !loadBtn || !msg || !tableBox) return;
 
           const params = new URLSearchParams(window.location.search);
@@ -779,48 +786,82 @@ def render_static_page(page_key: str) -> str:
             loadBtn.disabled = true;
             try {
               const token = encodeURIComponent((tokenInput.value || '').trim());
+              if (exportJson && exportCsv) {
+                exportJson.href = '/api/subscriptions/monitoring/export.json?token=' + token;
+                exportCsv.href = '/api/subscriptions/monitoring/export.csv?token=' + token;
+              }
               const resp = await fetch('/api/subscriptions/monitoring?token=' + token + '&limit=50');
               const data = await resp.json();
               if (!resp.ok) {
                 throw new Error((data && data.detail) || 'Не удалось открыть приватную страницу подписки.');
               }
-              msg.textContent = `План: ${data.plan}, лимит: ${data.domain_limit}. Подписок: ${(data.items || []).length}.`;
+              const planLabel = (value) => value === 'pro' || value === 'support' ? 'Pro' : 'Базовый';
+              msg.textContent = `План: ${planLabel(data.plan)}, лимит: ${data.domain_limit}. Подписок: ${(data.items || []).length}.`;
               const items = Array.isArray(data.items) ? data.items : [];
               if (!items.length) {
                 tableBox.innerHTML = '<p class="lead" style="margin-top:0">Подписок не найдено.</p>';
                 return;
               }
+              const planText = (value) => value === 'pro' ? 'Pro' : (value === 'support' ? 'Pro' : 'Базовый');
+              const yesNoText = (value) => value ? 'Да' : 'Нет';
+              const formatDate = (value) => {
+                if (!value) return '—';
+                const dt = new Date(value);
+                if (Number.isNaN(dt.getTime())) return value;
+                return dt.toLocaleString('ru-RU', {
+                  year: 'numeric',
+                  month: '2-digit',
+                  day: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                });
+              };
+              const ownershipText = (item) => {
+                if (item.plan !== 'pro' && item.plan !== 'support') return 'Не требуется';
+                return item.ownership_verified ? 'Подтверждено' : 'Не подтверждено';
+              };
               const rows = items.map((item) => `
                 <tr>
-                  <td>${item.host}:${item.port}</td>
-                  <td>${item.plan}</td>
-                  <td>${item.confirmed ? 'yes' : 'no'}</td>
-                  <td>${item.ownership_verified ? 'yes' : (item.plan === 'pro' ? 'no' : 'n/a')}</td>
-                  <td>${item.enabled ? 'yes' : 'no'}</td>
-                  <td>${item.last_sent_at || '—'}</td>
-                  <td>${item.next_run_at || '—'}</td>
-                  <td>
-                    ${item.confirmed && item.enabled ? `<button data-run-now="${item.id}" type="button" style="min-height:36px;border:0;border-radius:8px;padding:0 12px;background:#0f766e;color:#fff;font:inherit;font-weight:750;cursor:pointer">Запустить</button>` : ''}
-                    ${item.plan === 'pro' && !item.ownership_verified ? `<button data-own-challenge="${item.id}" type="button" style="min-height:36px;border:0;border-radius:8px;padding:0 12px;background:#315a9b;color:#fff;font:inherit;font-weight:750;cursor:pointer;margin-left:6px">Challenge</button><button data-own-verify="${item.id}" type="button" style="min-height:36px;border:0;border-radius:8px;padding:0 12px;background:#6b7280;color:#fff;font:inherit;font-weight:750;cursor:pointer;margin-left:6px">Verify</button>` : ''}
+                  <td><strong>${item.host}</strong></td>
+                  <td>${planText(item.plan)}</td>
+                  <td>${yesNoText(item.confirmed)}</td>
+                  <td>${ownershipText(item)}</td>
+                  <td>${yesNoText(item.enabled)}</td>
+                  <td>${formatDate(item.last_sent_at)}</td>
+                  <td>${formatDate(item.next_run_at)}</td>
+                  <td class="monitor-actions">
+                    ${item.confirmed && item.enabled ? `<button class="btn-action btn-run" data-run-now="${item.id}" type="button">Запустить</button>` : ''}
+                    ${(item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified ? `
+                      <div class="ownership-row">
+                        <select class="ownership-method" data-own-method="${item.id}">
+                          <option value="dns_txt">DNS TXT</option>
+                          <option value="http_file">HTTP файл</option>
+                        </select>
+                        <button class="btn-action btn-challenge" data-own-challenge="${item.id}" type="button">Challenge</button>
+                        <button class="btn-action btn-verify" data-own-verify="${item.id}" type="button">Проверить</button>
+                      </div>
+                    ` : ''}
                   </td>
                 </tr>
               `).join('');
               tableBox.innerHTML = `
-                <table>
+                <div class="monitor-table-wrap">
+                <table class="monitor-table">
                   <thead>
                     <tr>
                       <th>Домен</th>
                       <th>План</th>
-                      <th>Confirmed</th>
-                      <th>Ownership</th>
-                      <th>Enabled</th>
-                      <th>Last sent</th>
-                      <th>Next run</th>
-                      <th>Действие</th>
+                      <th>Подтверждение</th>
+                      <th>Владение</th>
+                      <th>Активна</th>
+                      <th>Последняя отправка</th>
+                      <th>Следующий запуск</th>
+                      <th>Действия</th>
                     </tr>
                   </thead>
                   <tbody>${rows}</tbody>
                 </table>
+                </div>
               `;
               tableBox.querySelectorAll('[data-run-now]').forEach((button) => {
                 button.addEventListener('click', async () => {
@@ -845,8 +886,8 @@ def render_static_page(page_key: str) -> str:
               tableBox.querySelectorAll('[data-own-challenge]').forEach((button) => {
                 button.addEventListener('click', async () => {
                   const id = button.getAttribute('data-own-challenge');
-                  const method = window.prompt('Метод ownership: dns_txt или http_file', 'dns_txt');
-                  if (!method) return;
+                  const methodInput = tableBox.querySelector('[data-own-method="' + id + '"]');
+                  const method = (methodInput && methodInput.value ? methodInput.value : 'dns_txt').trim();
                   button.disabled = true;
                   try {
                     const resp = await fetch('/api/subscriptions/monitoring/' + encodeURIComponent(id) + '/ownership/challenge?token=' + token, {
@@ -950,6 +991,95 @@ def render_static_page(page_key: str) -> str:
     ul {{ margin: 0; padding-left: 18px; display: grid; gap: 7px; }}
     footer {{ margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); }}
     footer nav {{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }}
+    .monitor-status-form {{
+      display: grid;
+      gap: 10px;
+      max-width: 100%;
+    }}
+    .monitor-status-form input,
+    .monitor-status-form button {{
+      min-height: 44px;
+      border-radius: 8px;
+      font: inherit;
+      width: 100%;
+    }}
+    .monitor-status-form input {{
+      border: 1px solid #c9cec6;
+      padding: 0 12px;
+      min-width: 0;
+    }}
+    .monitor-status-form button {{
+      border: 0;
+      background: var(--teal);
+      color: #fff;
+      font-weight: 750;
+      cursor: pointer;
+    }}
+    .monitor-export-row {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }}
+    .monitor-table-wrap {{
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }}
+    .monitor-table {{
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 900px;
+    }}
+    .monitor-table th,
+    .monitor-table td {{
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+      white-space: normal;
+      word-break: break-word;
+    }}
+    .monitor-table th {{
+      font-size: 14px;
+      color: var(--muted);
+      font-weight: 700;
+    }}
+    .monitor-actions {{
+      min-width: 210px;
+    }}
+    .ownership-row {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }}
+    .ownership-method {{
+      min-height: 34px;
+      border: 1px solid #c9cec6;
+      border-radius: 8px;
+      padding: 0 10px;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+    }}
+    .btn-action {{
+      min-height: 34px;
+      border: 0;
+      border-radius: 8px;
+      padding: 0 12px;
+      color: #fff;
+      font: inherit;
+      font-weight: 750;
+      cursor: pointer;
+      margin-right: 6px;
+      margin-bottom: 6px;
+      display: inline-block;
+    }}
+    .btn-run {{ background: var(--teal); }}
+    .btn-challenge {{ background: #315a9b; }}
+    .btn-verify {{ background: #6b7280; }}
   </style>
 </head>
 <body>
@@ -1066,9 +1196,9 @@ def render_frontend() -> str:
     main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 48px; }
     header {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 760px);
+      grid-template-columns: minmax(0, 1fr) minmax(0, 680px);
       gap: 18px;
-      align-items: end;
+      align-items: start;
       padding: 14px 0 24px;
       border-bottom: 1px solid var(--line);
     }
@@ -1082,14 +1212,16 @@ def render_frontend() -> str:
 	    .brand-link:hover { color: var(--teal-dark); }
     form {
       display: grid;
-      grid-template-columns: minmax(220px, 1fr) 170px;
+      grid-template-columns: minmax(0, 1fr) minmax(140px, 170px);
       gap: 8px;
       align-items: center;
       width: 100%;
       min-width: 0;
+      max-width: 680px;
       margin-left: auto;
-      justify-self: end;
+      justify-self: stretch;
     }
+    .domain-field { min-width: 0; }
     .subscription-cta-row {
       grid-column: 1 / -1;
       display: grid;
@@ -1279,6 +1411,7 @@ def render_frontend() -> str:
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 10px;
       margin-bottom: 12px;
+      grid-column: 1 / -1;
     }
     .compare-card {
       border: 1px solid var(--line);
@@ -1321,6 +1454,7 @@ def render_frontend() -> str:
 	      grid-template-columns: repeat(3, minmax(0, 1fr));
 	      gap: 14px;
 	      margin-top: 18px;
+        align-items: start;
 	    }
 	    .about-intro {
 	      grid-column: span 3;
@@ -1403,9 +1537,13 @@ def render_frontend() -> str:
         border: 1px solid #ccc;
       }
     }
+    @media (max-width: 1180px) {
+      header { grid-template-columns: 1fr; }
+      form { margin-left: 0; max-width: 760px; }
+    }
 	    @media (max-width: 900px) {
 	      header, .hero-status { grid-template-columns: 1fr; }
-	      form { grid-template-columns: 1fr 170px; }
+	      form { grid-template-columns: minmax(0, 1fr) 150px; }
 	      form .domain-field { grid-column: auto; }
 	      .subscription-cta-row { grid-template-columns: 1fr; }
 	      .span-4, .span-5, .span-6, .span-7, .span-8 { grid-column: span 12; }
@@ -1482,7 +1620,7 @@ def render_frontend() -> str:
 		        <h2>Что это за сервис</h2>
 		        <p>TLS Audit проверяет публичную HTTPS/TLS-конфигурацию сайта, формирует понятный отчёт с оценкой и помогает поддерживать безопасность через подписки на мониторинг.</p>
 		      </div>
-          <div class="span-12 compare-strip">
+          <div class="compare-strip">
             <div class="compare-card">
               <div class="compare-label">Методика</div>
               <div class="compare-value">v0.2</div>

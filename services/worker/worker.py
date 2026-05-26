@@ -240,11 +240,13 @@ def send_subscription_report(
     cert = report.get("certificate") or {}
     cert_days = cert.get("expires_in_days")
     cert_not_after = cert.get("not_after")
+    cert_status = format_certificate_status(cert_days, cert_not_after)
     summary = report.get("summary") or []
     top = summary[0] if isinstance(summary, list) and summary else "Отчёт сформирован."
     highlights = top_findings(report, limit=3)
     subject = f"TLS Audit: еженедельный отчёт {host} — {grade}"
     if plan == "support":
+        evidence_block = format_provenance_block(report)
         body = (
             "TLS Audit Pro — еженедельный отчёт\n"
             "==================================\n"
@@ -252,15 +254,11 @@ def send_subscription_report(
             f"Порт: {port}\n"
             f"Оценка: {grade}"
             + (f" ({score}/100)\n" if score is not None else "\n")
-            + (
-                f"Сертификат: осталось {cert_days} дн."
-                + (f" (до {cert_not_after})\n" if cert_not_after else "\n")
-                if cert_days is not None
-                else "Сертификат: нет данных\n"
-            )
-            + format_diff_block(monitoring_diff)
+            + f"Сертификат: {cert_status}\n"
+            + format_diff_block(monitoring_diff, detailed=True)
             + f"Ключевой вывод: {top}\n"
             + (f"\nГлавные замечания:\n{highlights}\n" if highlights else "\n")
+            + evidence_block
             + f"\nПолный отчёт: {report_link}\n"
         )
     else:
@@ -271,12 +269,7 @@ def send_subscription_report(
             f"Порт: {port}\n"
             f"Оценка: {grade}"
             + (f" ({score}/100)\n" if score is not None else "\n")
-            + (
-                f"Сертификат: осталось {cert_days} дн."
-                + (f" (до {cert_not_after})\n" if cert_not_after else "\n")
-                if cert_days is not None
-                else "Сертификат: нет данных\n"
-            )
+            + f"Сертификат: {cert_status}\n"
             + f"Итог: {top}\n"
             + f"Отчёт: {report_link}\n"
         )
@@ -368,7 +361,15 @@ def send_subscription_alert_report(
     plan = str(job.get("subscription_plan") or "free").strip().lower()
     if plan != "support" or not events:
         return
-    interesting = [event for event in events if event.event_type in {"certificate_expiring", "certificate_expired"}]
+    interesting_types = {
+        "certificate_expiring",
+        "certificate_expired",
+        "grade_degraded",
+        "legacy_tls_enabled",
+        "critical_added",
+        "scan_failed",
+    }
+    interesting = [event for event in events if event.event_type in interesting_types]
     if not interesting:
         return
     subscription_id = optional_int(job.get("subscription_id"))
@@ -378,16 +379,25 @@ def send_subscription_alert_report(
     smtp_url = os.getenv("SMTP_URL", "").strip()
     if not smtp_url:
         return
-    deliverable: list[MonitoringEvent] = []
+    deliverable_pairs: list[tuple[str, MonitoringEvent]] = []
+    seen_in_batch: set[str] = set()
     for event in interesting:
-        if subscription_store.should_send_alert(subscription_id, event.event_type, ALERT_COOLDOWN_SECONDS):
-            deliverable.append(event)
-    if not deliverable:
+        alert_key = alert_key_for_event(event)
+        if alert_key in seen_in_batch:
+            continue
+        if subscription_store.should_send_alert(
+            subscription_id,
+            alert_key,
+            alert_cooldown_for_event(event.event_type),
+        ):
+            seen_in_batch.add(alert_key)
+            deliverable_pairs.append((alert_key, event))
+    if not deliverable_pairs:
         return
     host = str(job.get("host") or "")
     grade = str(report.get("grade") or "n/a")
     score = report.get("score")
-    subject = f"TLS Audit Pro alert: {host} — {deliverable[0].title}"
+    subject = f"TLS Audit Pro alert: {host} — {deliverable_pairs[0][1].title}"
     lines = [
         "TLS Audit Pro — alert",
         "=====================",
@@ -396,7 +406,7 @@ def send_subscription_alert_report(
         "",
         "События:",
     ]
-    for event in deliverable:
+    for _alert_key, event in deliverable_pairs:
         detail = f": {event.detail}" if event.detail else ""
         lines.append(f"- [{event.severity.upper()}] {event.title}{detail}")
     body = "\n".join(lines) + "\n"
@@ -411,8 +421,11 @@ def send_subscription_alert_report(
             body=body,
         )
         if sent:
-            for event in deliverable:
-                subscription_store.mark_alert_sent(subscription_id, event.event_type)
+            for alert_key, _event in deliverable_pairs:
+                subscription_store.mark_alert_sent(
+                    subscription_id,
+                    alert_key,
+                )
     except Exception as exc:  # noqa: BLE001
         log_event(
             logger,
@@ -422,38 +435,82 @@ def send_subscription_alert_report(
             error=str(exc),
         )
 
+
+def alert_cooldown_for_event(event_type: str) -> int:
+    normalized = str(event_type or "").strip().lower()
+    if normalized == "scan_failed":
+        return int(os.getenv("ALERT_SCAN_FAILED_COOLDOWN_SECONDS", "86400"))
+    if normalized.startswith("certificate_"):
+        return int(os.getenv("ALERT_CERTIFICATE_COOLDOWN_SECONDS", "86400"))
+    if normalized in {"grade_degraded", "legacy_tls_enabled", "critical_added"}:
+        return int(os.getenv("ALERT_SECURITY_COOLDOWN_SECONDS", "86400"))
+    return ALERT_COOLDOWN_SECONDS
+
+
+def alert_key_for_event(event: MonitoringEvent) -> str:
+    event_type = str(event.event_type or "").strip().lower() or "event"
+    payload = event.payload or {}
+    if event_type == "critical_added":
+        code = str(payload.get("code") or "").strip().lower()
+        title = str(payload.get("title") or event.title or "").strip().lower()
+        if code:
+            return f"{event_type}:{code}"
+        if title:
+            return f"{event_type}:{title}"
+    if event_type == "legacy_tls_enabled":
+        added = payload.get("added_protocols") or []
+        if isinstance(added, list) and added:
+            normalized = ",".join(sorted(str(item).strip().upper() for item in added if str(item).strip()))
+            if normalized:
+                return f"{event_type}:{normalized}"
+    if event_type == "grade_degraded":
+        delta = payload.get("score_delta")
+        if delta is not None:
+            return f"{event_type}:{delta}"
+    return event_type
+
 def top_findings(report: Dict[str, object], limit: int = 3) -> str:
     items = report.get("findings") or []
     if not isinstance(items, list):
         return ""
     rank = {"critical": 0, "high": 1, "medium": 2, "info": 3}
-    normalized = []
+    grouped: dict[tuple[int, str, str], dict[str, object]] = {}
     for item in items:
         if not isinstance(item, dict):
             continue
         severity = str(item.get("severity") or "info").lower()
         title = str(item.get("title") or "").strip()
+        detail = str(item.get("detail") or "").strip()
         if not title:
             continue
-        normalized.append((rank.get(severity, 9), severity.upper(), title))
-    normalized.sort(key=lambda item: item[0])
-    if not normalized:
+        key = (rank.get(severity, 9), severity.upper(), title)
+        bucket = grouped.setdefault(
+            key,
+            {"count": 0, "details": []},
+        )
+        bucket["count"] = int(bucket["count"]) + 1
+        if detail:
+            details = bucket["details"]
+            if isinstance(details, list) and detail not in details and len(details) < 2:
+                details.append(detail)
+    if not grouped:
         return ""
-    unique = []
-    seen = set()
-    for item in normalized:
-        key = (item[1], item[2])
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(item)
+    ordered = sorted(grouped.items(), key=lambda item: item[0][0])
     lines = []
-    for _, sev, title in unique[: max(1, int(limit))]:
-        lines.append(f"- [{sev}] {title}")
+    for (score_rank, sev, title), payload in ordered[: max(1, int(limit))]:
+        del score_rank
+        count = int(payload.get("count") or 0)
+        details = payload.get("details") if isinstance(payload.get("details"), list) else []
+        line = f"- [{sev}] {title}"
+        if count > 1:
+            line += f" (x{count})"
+        if details:
+            line += f": {'; '.join(str(item) for item in details)}"
+        lines.append(line)
     return "\n".join(lines)
 
 
-def format_diff_block(diff: Optional[MonitoringDiff]) -> str:
+def format_diff_block(diff: Optional[MonitoringDiff], detailed: bool = False) -> str:
     if diff is None:
         return ""
     parts = []
@@ -470,9 +527,59 @@ def format_diff_block(diff: Optional[MonitoringDiff]) -> str:
     resolved = len(diff.resolved_findings or [])
     if added or resolved:
         parts.append(f"новых проблем: {added}, исправлено: {resolved}")
+    if detailed:
+        if diff.added_findings:
+            top_added = ", ".join(item.title for item in diff.added_findings[:2] if item.title)
+            if top_added:
+                parts.append(f"добавились: {top_added}")
+        if diff.resolved_findings:
+            top_resolved = ", ".join(item.title for item in diff.resolved_findings[:2] if item.title)
+            if top_resolved:
+                parts.append(f"исправлены: {top_resolved}")
     if not parts:
         parts.append("без существенных изменений")
     return "Изменения с прошлого скана: " + "; ".join(parts) + ".\n"
+
+
+def format_certificate_status(cert_days: object, cert_not_after: object) -> str:
+    days = optional_int(cert_days)
+    not_after = str(cert_not_after or "").strip()
+    if days is None:
+        return "нет данных"
+    if days < 0:
+        suffix = f" (истёк {abs(days)} дн. назад)"
+        return ("истёк" + suffix + (f", notAfter {not_after}" if not_after else ""))
+    if days <= 20:
+        suffix = f"осталось {days} дн."
+        return (suffix + (f", notAfter {not_after}" if not_after else "") + " — требуется продление")
+    return f"осталось {days} дн." + (f" (до {not_after})" if not_after else "")
+
+
+def format_provenance_block(report: Dict[str, object]) -> str:
+    raw = report.get("raw")
+    if not isinstance(raw, dict):
+        return ""
+    provenance = raw.get("provenance")
+    if not isinstance(provenance, dict):
+        return ""
+    sources = provenance.get("sources")
+    if not isinstance(sources, list) or not sources:
+        return ""
+    lines = ["", "Evidence:", "---------"]
+    for source in sources[:4]:
+        if not isinstance(source, dict):
+            continue
+        source_id = str(source.get("id") or "source").strip()
+        version = str(source.get("version") or "").strip()
+        status = str(source.get("status") or "unknown").strip()
+        scanned_at = str(source.get("scanned_at") or "").strip()
+        line = f"- {source_id}: {status}"
+        if version:
+            line += f", version={version}"
+        if scanned_at:
+            line += f", scanned_at={scanned_at}"
+        lines.append(line)
+    return "\n".join(lines) + "\n"
 
 
 def run_dev_file_worker() -> None:

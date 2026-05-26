@@ -143,11 +143,15 @@ def diff_snapshots(
 def events_from_diff(diff: MonitoringDiff) -> List[MonitoringEvent]:
     events: List[MonitoringEvent] = []
     if diff.grade_degraded:
+        score_detail = ""
+        if diff.score_delta is not None:
+            score_detail = f"Изменение баллов: {diff.score_delta}."
         events.append(
             MonitoringEvent(
                 event_type="grade_degraded",
                 severity="high",
                 title="Оценка TLS ухудшилась",
+                detail=score_detail,
                 payload={"score_delta": diff.score_delta},
             )
         )
@@ -197,11 +201,13 @@ def events_from_diff(diff: MonitoringDiff) -> List[MonitoringEvent]:
             )
 
     if "TLS 1.0" in diff.supported_protocols_added or "TLS 1.1" in diff.supported_protocols_added:
+        added = ", ".join(diff.supported_protocols_added)
         events.append(
             MonitoringEvent(
                 event_type="legacy_tls_enabled",
                 severity="high",
                 title="Включился устаревший TLS",
+                detail=f"Добавлены протоколы: {added}" if added else "",
                 payload={"added_protocols": diff.supported_protocols_added},
             )
         )
