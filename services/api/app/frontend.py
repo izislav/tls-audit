@@ -754,25 +754,46 @@ def render_static_page(page_key: str) -> str:
         <section>
           <h2>Проверка статуса</h2>
           <div class="monitor-status-form">
-            <input id="monitor-status-token" type="text" placeholder="Токен из ссылки управления">
-            <button id="monitor-status-load" type="button">Открыть подписки</button>
+            <div class="monitor-inline-row monitor-inline-row--two">
+              <input id="monitor-status-token" type="text" placeholder="Токен из ссылки управления">
+              <button id="monitor-status-load" type="button">Открыть подписки</button>
+            </div>
+            <div id="monitor-owner-email" class="lead" style="margin-top:0"></div>
+            <div class="monitor-inline-row">
+              <input id="monitor-add-host" type="text" placeholder="example.ru">
+              <select id="monitor-add-plan">
+                <option value="free">Базовый</option>
+                <option value="support">Pro</option>
+              </select>
+              <button id="monitor-add-submit" type="button">Добавить домен</button>
+            </div>
+            <div id="monitor-flow-hint" class="lead" style="margin-top:0">
+              Flow: подтвердите email → добавьте домен → пройдите DNS/HTTP challenge (для Pro) → запустите run now → проверьте events/diff.
+            </div>
             <div class="monitor-export-row">
               <a id="monitor-export-json" class="ghost-button" href="#" target="_blank" rel="noopener">Экспорт JSON</a>
               <a id="monitor-export-csv" class="ghost-button" href="#" target="_blank" rel="noopener">Экспорт CSV</a>
             </div>
             <div id="monitor-status-message" class="lead" style="margin-top:0"></div>
             <div id="monitor-status-table"></div>
+            <div id="monitor-events-box"></div>
           </div>
         </section>
         <script>
         (() => {
           const tokenInput = document.getElementById('monitor-status-token');
           const loadBtn = document.getElementById('monitor-status-load');
+          const ownerEmailBox = document.getElementById('monitor-owner-email');
+          const addHostInput = document.getElementById('monitor-add-host');
+          const addPlanSelect = document.getElementById('monitor-add-plan');
+          const addSubmitBtn = document.getElementById('monitor-add-submit');
           const msg = document.getElementById('monitor-status-message');
           const tableBox = document.getElementById('monitor-status-table');
+          const eventsBox = document.getElementById('monitor-events-box');
           const exportJson = document.getElementById('monitor-export-json');
           const exportCsv = document.getElementById('monitor-export-csv');
-          if (!tokenInput || !loadBtn || !msg || !tableBox) return;
+          if (!tokenInput || !loadBtn || !msg || !tableBox || !eventsBox || !addSubmitBtn) return;
+          let ownerEmail = '';
 
           const params = new URLSearchParams(window.location.search);
           const queryToken = (params.get('token') || '').trim();
@@ -783,9 +804,11 @@ def render_static_page(page_key: str) -> str:
           async function loadStatus() {
             msg.textContent = '';
             tableBox.innerHTML = '';
+            eventsBox.innerHTML = '';
             loadBtn.disabled = true;
             try {
               const token = encodeURIComponent((tokenInput.value || '').trim());
+              if (!token) throw new Error('Укажите токен из письма управления подпиской.');
               if (exportJson && exportCsv) {
                 exportJson.href = '/api/subscriptions/monitoring/export.json?token=' + token;
                 exportCsv.href = '/api/subscriptions/monitoring/export.csv?token=' + token;
@@ -795,11 +818,15 @@ def render_static_page(page_key: str) -> str:
               if (!resp.ok) {
                 throw new Error((data && data.detail) || 'Не удалось открыть приватную страницу подписки.');
               }
+              ownerEmail = (data.email || '').trim();
+              if (ownerEmailBox) ownerEmailBox.textContent = ownerEmail ? ('Email владельца: ' + ownerEmail) : '';
               const planLabel = (value) => value === 'pro' || value === 'support' ? 'Pro' : 'Базовый';
+              if (addPlanSelect) addPlanSelect.value = data.plan === 'pro' ? 'support' : 'free';
               msg.textContent = `План: ${planLabel(data.plan)}, лимит: ${data.domain_limit}. Подписок: ${(data.items || []).length}.`;
               const items = Array.isArray(data.items) ? data.items : [];
               if (!items.length) {
                 tableBox.innerHTML = '<p class="lead" style="margin-top:0">Подписок не найдено.</p>';
+                await loadEvents(token);
                 return;
               }
               const planText = (value) => value === 'pro' ? 'Pro' : (value === 'support' ? 'Pro' : 'Базовый');
@@ -820,6 +847,12 @@ def render_static_page(page_key: str) -> str:
                 if (item.plan !== 'pro' && item.plan !== 'support') return 'Не требуется';
                 return item.ownership_verified ? 'Подтверждено' : 'Не подтверждено';
               };
+              const flowText = (item) => {
+                if (!item.confirmed) return '1) Подтвердите email';
+                if ((item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified) return '2) Пройдите ownership challenge';
+                if (!item.enabled) return '3) Включите подписку';
+                return '4) Запустите run now и следите за events/diff';
+              };
               const rows = items.map((item) => `
                 <tr>
                   <td><strong>${item.host}</strong></td>
@@ -829,8 +862,11 @@ def render_static_page(page_key: str) -> str:
                   <td>${yesNoText(item.enabled)}</td>
                   <td>${formatDate(item.last_sent_at)}</td>
                   <td>${formatDate(item.next_run_at)}</td>
+                  <td>${flowText(item)}</td>
                   <td class="monitor-actions">
                     ${item.confirmed && item.enabled ? `<button class="btn-action btn-run" data-run-now="${item.id}" type="button">Запустить</button>` : ''}
+                    ${item.latest_scan_id ? `<a class="ghost-button" href="/scan?job=${encodeURIComponent(item.latest_scan_id)}" target="_blank" rel="noopener">Отчёт</a>` : ''}
+                    ${item.latest_scan_id ? `<a class="ghost-button" href="/api/report/${encodeURIComponent(item.latest_scan_id)}/compare" target="_blank" rel="noopener">Diff JSON</a>` : ''}
                     ${(item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified ? `
                       <div class="ownership-row">
                         <select class="ownership-method" data-own-method="${item.id}">
@@ -856,6 +892,7 @@ def render_static_page(page_key: str) -> str:
                       <th>Активна</th>
                       <th>Последняя отправка</th>
                       <th>Следующий запуск</th>
+                      <th>Следующий шаг</th>
                       <th>Действия</th>
                     </tr>
                   </thead>
@@ -876,6 +913,7 @@ def render_static_page(page_key: str) -> str:
                       throw new Error((runData && runData.detail) || 'Не удалось запустить проверку.');
                     }
                     msg.textContent = 'Ручная проверка поставлена в очередь.';
+                    await loadEvents(token);
                   } catch (error) {
                     msg.textContent = error.message || 'Ошибка запуска.';
                   } finally {
@@ -920,6 +958,7 @@ def render_static_page(page_key: str) -> str:
                     const data = await resp.json();
                     if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось проверить ownership.');
                     msg.textContent = data.ownership_verified ? 'Ownership подтвержден.' : ('Ownership не подтвержден: ' + (data.detail || 'нет данных'));
+                    await loadStatus();
                   } catch (error) {
                     msg.textContent = error.message || 'Ошибка verify.';
                   } finally {
@@ -927,6 +966,7 @@ def render_static_page(page_key: str) -> str:
                   }
                 });
               });
+              await loadEvents(token);
             } catch (error) {
               msg.textContent = error.message || 'Ошибка загрузки.';
             } finally {
@@ -934,7 +974,73 @@ def render_static_page(page_key: str) -> str:
             }
           }
 
+          async function loadEvents(token) {
+            eventsBox.innerHTML = '';
+            try {
+              const resp = await fetch('/api/subscriptions/monitoring/events?token=' + token + '&limit=20');
+              const data = await resp.json();
+              if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось загрузить события.');
+              const items = Array.isArray(data.items) ? data.items : [];
+              const blocks = items.map((item) => {
+                const events = Array.isArray(item.events) ? item.events : [];
+                const eventsHtml = events.length
+                  ? events.slice(0, 6).map((event) => {
+                      const when = event.created_at ? new Date(event.created_at).toLocaleString('ru-RU') : '—';
+                      const scanLink = event.scan_id ? `<a href="/scan?job=${encodeURIComponent(event.scan_id)}" target="_blank" rel="noopener">scan</a>` : '';
+                      return `<li><strong>${event.title || event.event_type || 'Событие'}</strong> — ${event.severity || 'info'} · ${when} ${scanLink}</li>`;
+                    }).join('')
+                  : '<li>Событий пока нет.</li>';
+                return `
+                  <div class="monitor-event-block">
+                    <h3 style="margin:0 0 8px">${item.host}</h3>
+                    <ul>${eventsHtml}</ul>
+                  </div>
+                `;
+              }).join('');
+              eventsBox.innerHTML = `<h2 style="margin-top:16px">Events / Diff</h2>${blocks || '<p class="lead">Событий пока нет.</p>'}`;
+            } catch (_error) {
+              eventsBox.innerHTML = '<p class="lead">Не удалось загрузить события.</p>';
+            }
+          }
+
+          async function addDomain() {
+            msg.textContent = '';
+            try {
+              const tokenRaw = (tokenInput.value || '').trim();
+              if (!tokenRaw) throw new Error('Сначала укажите токен и откройте подписки.');
+              const host = (addHostInput && addHostInput.value ? addHostInput.value : '').trim();
+              if (!host) throw new Error('Укажите домен для подписки.');
+              const plan = (addPlanSelect && addPlanSelect.value ? addPlanSelect.value : 'free').trim();
+              const payload = {
+                host: host,
+                port: 443,
+                email: ownerEmail || '',
+                plan: plan
+              };
+              if (!payload.email) throw new Error('Не определён email владельца. Сначала откройте подписки по токену.');
+              addSubmitBtn.disabled = true;
+              const resp = await fetch('/api/subscriptions/monitoring', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+              });
+              const data = await resp.json();
+              if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось добавить домен.');
+              const confirmUrl = data.confirm_url || '';
+              msg.innerHTML = confirmUrl
+                ? ('Подписка создана. Подтверждение email: <a target="_blank" rel="noopener" href="' + confirmUrl + '">ссылка</a>')
+                : 'Подписка создана.';
+              if (addHostInput) addHostInput.value = '';
+              await loadStatus();
+            } catch (error) {
+              msg.textContent = error.message || 'Ошибка добавления.';
+            } finally {
+              addSubmitBtn.disabled = false;
+            }
+          }
+
           loadBtn.addEventListener('click', loadStatus);
+          addSubmitBtn.addEventListener('click', addDomain);
           if (queryToken) {
             loadStatus();
           }
@@ -997,6 +1103,7 @@ def render_static_page(page_key: str) -> str:
       max-width: 100%;
     }}
     .monitor-status-form input,
+    .monitor-status-form select,
     .monitor-status-form button {{
       min-height: 44px;
       border-radius: 8px;
@@ -1007,6 +1114,29 @@ def render_static_page(page_key: str) -> str:
       border: 1px solid #c9cec6;
       padding: 0 12px;
       min-width: 0;
+    }}
+    .monitor-status-form select {{
+      border: 1px solid #c9cec6;
+      padding: 0 12px;
+      min-width: 0;
+      background: #fff;
+      color: var(--ink);
+    }}
+    .monitor-inline-row {{
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 8px;
+      align-items: center;
+    }}
+    .monitor-inline-row--two {{
+      display: grid;
+      grid-template-columns: 1fr auto;
+    }}
+    #monitor-add-plan {{
+      min-width: 160px;
+    }}
+    #monitor-add-submit {{
+      min-width: 170px;
     }}
     .monitor-status-form button {{
       border: 0;
@@ -1047,7 +1177,7 @@ def render_static_page(page_key: str) -> str:
       font-weight: 700;
     }}
     .monitor-actions {{
-      min-width: 210px;
+      min-width: 280px;
     }}
     .ownership-row {{
       display: flex;
@@ -1080,6 +1210,18 @@ def render_static_page(page_key: str) -> str:
     .btn-run {{ background: var(--teal); }}
     .btn-challenge {{ background: #315a9b; }}
     .btn-verify {{ background: #6b7280; }}
+    .monitor-event-block {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 10px;
+      background: #fff;
+    }}
+    @media (max-width: 900px) {{
+      .monitor-inline-row {{
+        grid-template-columns: 1fr;
+      }}
+    }}
   </style>
 </head>
 <body>

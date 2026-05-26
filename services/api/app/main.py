@@ -851,6 +851,8 @@ def create_monitor_subscription(payload: SubscribeRequest) -> Dict[str, object]:
 def list_monitor_subscriptions(token: str, limit: int = 20) -> Dict[str, object]:
     normalized = require_monitor_owner_token(token)
     items = subscription_store.list_by_email(normalized, limit=max(1, min(limit, 100)))
+    domains = monitoring_store.list_domains(limit=1000) if getattr(monitoring_store, "enabled", False) else []
+    domain_map = {(item.host, int(item.port)): item for item in domains}
     has_support = any(item.plan == "support" and item.enabled for item in items)
     account = billing_store.get_by_email(normalized)
     if account and account.plan == "support" and account.status == "active":
@@ -868,20 +870,7 @@ def list_monitor_subscriptions(token: str, limit: int = 20) -> Dict[str, object]
         "domain_limit": effective_limit,
         "manage_token": token,
         "items": [
-            {
-                "id": item.id,
-                "host": item.host,
-                "port": item.port,
-                "plan": "pro" if item.plan == "support" else item.plan,
-                "enabled": item.enabled,
-                "confirmed": item.confirmed,
-                "ownership_method": item.ownership_method,
-                "ownership_verified": item.ownership_verified_at is not None,
-                "ownership_verified_at": iso_or_none(item.ownership_verified_at),
-                "last_sent_at": iso_or_none(item.last_sent_at),
-                "next_run_at": iso_or_none(item.next_run_at),
-                "created_at": iso_or_none(item.created_at),
-            }
+            subscription_item_to_dict(item, domain_map.get((item.host, int(item.port))))
             for item in items
         ],
     }
@@ -1179,6 +1168,32 @@ def domain_to_dict(domain) -> Dict[str, object]:
         "last_scan_at": iso_or_none(domain.last_scan_at),
         "next_scan_at": iso_or_none(domain.next_scan_at),
         "notes": domain.notes,
+    }
+
+
+def subscription_item_to_dict(item, domain) -> Dict[str, object]:
+    latest_scan_id = None
+    monitored_domain_id = None
+    if domain:
+        monitored_domain_id = domain.id
+        latest_events = monitoring_store.list_events(domain.id, limit=1)
+        if latest_events:
+            latest_scan_id = latest_events[0].get("scan_id")
+    return {
+        "id": item.id,
+        "host": item.host,
+        "port": item.port,
+        "plan": "pro" if item.plan == "support" else item.plan,
+        "enabled": item.enabled,
+        "confirmed": item.confirmed,
+        "ownership_method": item.ownership_method,
+        "ownership_verified": item.ownership_verified_at is not None,
+        "ownership_verified_at": iso_or_none(item.ownership_verified_at),
+        "last_sent_at": iso_or_none(item.last_sent_at),
+        "next_run_at": iso_or_none(item.next_run_at),
+        "created_at": iso_or_none(item.created_at),
+        "monitored_domain_id": monitored_domain_id,
+        "latest_scan_id": latest_scan_id,
     }
 
 
