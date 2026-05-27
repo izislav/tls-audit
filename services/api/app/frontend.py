@@ -992,17 +992,29 @@ def render_static_page(page_key: str) -> str:
           function renderEventsByFilter(filter) {
             const items = Array.isArray(latestEventPayload) ? latestEventPayload : [];
             const allowSeverities = filter === 'critical_high' ? new Set(['critical', 'high']) : null;
+            const severityRank = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
             const blocks = items.map((item) => {
                 const events = Array.isArray(item.events) ? item.events : [];
+                const sortedEvents = events.slice().sort((a, b) => {
+                  const aSev = String(a.severity || 'info').toLowerCase();
+                  const bSev = String(b.severity || 'info').toLowerCase();
+                  const rankDelta = (severityRank[aSev] ?? 9) - (severityRank[bSev] ?? 9);
+                  if (rankDelta !== 0) return rankDelta;
+                  const aTs = Date.parse(a.created_at || '') || 0;
+                  const bTs = Date.parse(b.created_at || '') || 0;
+                  return bTs - aTs;
+                });
                 const eventsHtml = events.length
-                  ? events
+                  ? sortedEvents
                     .filter((event) => !allowSeverities || allowSeverities.has(String(event.severity || '').toLowerCase()))
                     .slice(0, 6)
                     .map((event) => {
+                      const sev = String(event.severity || 'info').toLowerCase();
                       const when = event.created_at ? new Date(event.created_at).toLocaleString('ru-RU') : '—';
                       const scanLink = event.scan_id ? `<a href="/scan?job=${encodeURIComponent(event.scan_id)}" target="_blank" rel="noopener">scan</a>` : '';
                       const diffLink = event.scan_id ? `<a href="/api/report/${encodeURIComponent(event.scan_id)}/compare" target="_blank" rel="noopener">diff</a>` : '';
-                      return `<li><strong>${event.title || event.event_type || 'Событие'}</strong> — ${event.severity || 'info'} · ${when} ${scanLink} ${diffLink}</li>`;
+                      const badge = `<span class="sev-badge ${escapeHtml(sev)}">${escapeHtml((event.severity || 'info').toUpperCase())}</span>`;
+                      return `<li>${badge}<strong>${event.title || event.event_type || 'Событие'}</strong> · ${when} ${scanLink} ${diffLink}</li>`;
                     }).join('')
                   : '<li>Событий пока нет.</li>';
                 return `
@@ -1256,6 +1268,20 @@ def render_static_page(page_key: str) -> str:
       margin-bottom: 10px;
       background: #fff;
     }}
+    .sev-badge {{
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.4;
+      margin-right: 6px;
+    }}
+    .sev-badge.critical {{ background: #fee2e2; color: #991b1b; }}
+    .sev-badge.high {{ background: #ffedd5; color: #9a3412; }}
+    .sev-badge.medium {{ background: #fef9c3; color: #854d0e; }}
+    .sev-badge.info {{ background: #dbeafe; color: #1d4ed8; }}
     @media (max-width: 900px) {{
       .monitor-inline-row {{
         grid-template-columns: 1fr;
