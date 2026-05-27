@@ -612,9 +612,9 @@ STATIC_PAGES = {
             (
                 "Следующие изменения",
                 [
-                    "Добавление evidence прямо в отчет по каждому важному выводу.",
-                    "Появление scanner versions и времени сбора данных в явном виде.",
-                    "Стабилизация правил ownership verification для приватного мониторинга.",
+                    "В отчете добавлены отдельные evidence-чипы с источником, версией scanner и временем проверки.",
+                    "В private owner flow добавлены шаги add domain → challenge/verify → run now → events/diff.",
+                    "Следующий шаг: формализовать интеграционные security-тесты trust zones в CI.",
                 ],
             ),
         ],
@@ -794,6 +794,7 @@ def render_static_page(page_key: str) -> str:
           const exportCsv = document.getElementById('monitor-export-csv');
           if (!tokenInput || !loadBtn || !msg || !tableBox || !eventsBox || !addSubmitBtn) return;
           let ownerEmail = '';
+          let latestEventPayload = [];
 
           const params = new URLSearchParams(window.location.search);
           const queryToken = (params.get('token') || '').trim();
@@ -822,7 +823,8 @@ def render_static_page(page_key: str) -> str:
               if (ownerEmailBox) ownerEmailBox.textContent = ownerEmail ? ('Email владельца: ' + ownerEmail) : '';
               const planLabel = (value) => value === 'pro' || value === 'support' ? 'Pro' : 'Базовый';
               if (addPlanSelect) addPlanSelect.value = data.plan === 'pro' ? 'support' : 'free';
-              msg.textContent = `План: ${planLabel(data.plan)}, лимит: ${data.domain_limit}. Подписок: ${(data.items || []).length}.`;
+              const lastWeekly = latestWeeklySend(Array.isArray(data.items) ? data.items : []);
+              msg.textContent = `План: ${planLabel(data.plan)}, лимит: ${data.domain_limit}. Подписок: ${(data.items || []).length}. Последняя успешная weekly отправка: ${lastWeekly}.`;
               const items = Array.isArray(data.items) ? data.items : [];
               if (!items.length) {
                 tableBox.innerHTML = '<p class="lead" style="margin-top:0">Подписок не найдено.</p>';
@@ -980,11 +982,23 @@ def render_static_page(page_key: str) -> str:
               const resp = await fetch('/api/subscriptions/monitoring/events?token=' + token + '&limit=20');
               const data = await resp.json();
               if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось загрузить события.');
-              const items = Array.isArray(data.items) ? data.items : [];
-              const blocks = items.map((item) => {
+              latestEventPayload = Array.isArray(data.items) ? data.items : [];
+              renderEventsByFilter('all');
+            } catch (_error) {
+              eventsBox.innerHTML = '<p class="lead">Не удалось загрузить события.</p>';
+            }
+          }
+
+          function renderEventsByFilter(filter) {
+            const items = Array.isArray(latestEventPayload) ? latestEventPayload : [];
+            const allowSeverities = filter === 'critical_high' ? new Set(['critical', 'high']) : null;
+            const blocks = items.map((item) => {
                 const events = Array.isArray(item.events) ? item.events : [];
                 const eventsHtml = events.length
-                  ? events.slice(0, 6).map((event) => {
+                  ? events
+                    .filter((event) => !allowSeverities || allowSeverities.has(String(event.severity || '').toLowerCase()))
+                    .slice(0, 6)
+                    .map((event) => {
                       const when = event.created_at ? new Date(event.created_at).toLocaleString('ru-RU') : '—';
                       const scanLink = event.scan_id ? `<a href="/scan?job=${encodeURIComponent(event.scan_id)}" target="_blank" rel="noopener">scan</a>` : '';
                       return `<li><strong>${event.title || event.event_type || 'Событие'}</strong> — ${event.severity || 'info'} · ${when} ${scanLink}</li>`;
@@ -997,10 +1011,34 @@ def render_static_page(page_key: str) -> str:
                   </div>
                 `;
               }).join('');
-              eventsBox.innerHTML = `<h2 style="margin-top:16px">Events / Diff</h2>${blocks || '<p class="lead">Событий пока нет.</p>'}`;
-            } catch (_error) {
-              eventsBox.innerHTML = '<p class="lead">Не удалось загрузить события.</p>';
-            }
+            const toolbar = `
+              <div class="monitor-export-row" style="margin-bottom:8px">
+                <button type="button" class="ghost-button" data-events-filter="all">Все события</button>
+                <button type="button" class="ghost-button" data-events-filter="critical_high">Critical/High</button>
+              </div>
+            `;
+            eventsBox.innerHTML = `<h2 style="margin-top:16px">Events / Diff</h2>${toolbar}${blocks || '<p class="lead">Событий пока нет.</p>'}`;
+            eventsBox.querySelectorAll('[data-events-filter]').forEach((button) => {
+              button.addEventListener('click', () => {
+                const mode = button.getAttribute('data-events-filter') || 'all';
+                renderEventsByFilter(mode);
+              });
+            });
+          }
+
+          function latestWeeklySend(items) {
+            const timestamps = items
+              .map((item) => item && item.last_sent_at ? Date.parse(item.last_sent_at) : NaN)
+              .filter((value) => Number.isFinite(value));
+            if (!timestamps.length) return 'ещё не было';
+            const latest = new Date(Math.max(...timestamps));
+            return latest.toLocaleString('ru-RU', {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+            });
           }
 
           async function addDomain() {
@@ -2125,6 +2163,9 @@ def render_frontend() -> str:
               ${chip(extraChecksChipText(vulnerabilities), vulnerabilities.testssl_status === 'done' ? (vulnerabilityProblems.length ? 'warn' : 'good') : 'info')}
               ${chip(russianChipText(russianTls), russianChipTone(russianTls))}
             </div>
+            <div class="chips" style="margin-top:8px">
+              ${renderProvenanceChips(provenanceSources)}
+            </div>
             <div style="margin-top:14px">${renderSummary(report.summary || [])}</div>
           </div>
         </div>
@@ -2444,6 +2485,21 @@ def render_frontend() -> str:
           </tbody>
         </table>
       `;
+    }
+
+    function renderProvenanceChips(sources) {
+      if (!Array.isArray(sources) || !sources.length) return chip('Evidence: нет данных', 'info');
+      const items = sources
+        .slice(0, 3)
+        .map((item) => {
+          const id = String(item.id || 'source');
+          const version = String(item.version || '').trim();
+          const scannedAt = formatEvidenceTime(item.scanned_at);
+          const text = version ? `${id} ${version}` : id;
+          return chip(`${text} · ${scannedAt || 'время не указано'}`, 'info');
+        })
+        .join('');
+      return items || chip('Evidence: нет данных', 'info');
     }
 
     function prettySourceLabel(value) {
