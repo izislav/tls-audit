@@ -9,6 +9,7 @@ from shared.tls_audit.archive import create_archive_store
 from shared.tls_audit.email_sender import send_email
 from shared.tls_audit.jobs import create_job_store
 from shared.tls_audit.logging import log_event
+from shared.tls_audit.monitor_access import build_monitor_token_secret, create_monitor_owner_token
 from shared.tls_audit.monitoring import MonitoringDiff
 from shared.tls_audit.monitoring import MonitoringEvent
 from shared.tls_audit.monitoring_pipeline import record_monitoring_failure, record_monitoring_report
@@ -247,6 +248,14 @@ def send_subscription_report(
     subject = f"TLS Audit: еженедельный отчёт {host} — {grade}"
     if plan == "support":
         evidence_block = format_provenance_block(report)
+        manage_url, unsubscribe_url = subscription_links(
+            subscription_id=subscription_id,
+            email=email,
+            public_base_url=(public_base_url or "https://tlsaudit.ru"),
+        )
+        diff_json_url = f"{public_base_url or 'https://tlsaudit.ru'}/api/report/{job_id}/compare"
+        diff_ui_url = f"{public_base_url or 'https://tlsaudit.ru'}/scan?job={job_id}#compare-section"
+        digest_block = format_pro_digest(monitoring_diff)
         body = (
             "TLS Audit Pro — еженедельный отчёт\n"
             "==================================\n"
@@ -256,10 +265,16 @@ def send_subscription_report(
             + (f" ({score}/100)\n" if score is not None else "\n")
             + f"Сертификат: {cert_status}\n"
             + format_diff_block(monitoring_diff, detailed=True)
+            + digest_block
             + f"Ключевой вывод: {top}\n"
             + (f"\nГлавные замечания:\n{highlights}\n" if highlights else "\n")
             + evidence_block
-            + f"\nПолный отчёт: {report_link}\n"
+            + "\nСсылки:\n"
+            + f"- Scan: {report_link}\n"
+            + f"- Diff view: {diff_ui_url}\n"
+            + f"- Diff JSON: {diff_json_url}\n"
+            + f"- Управление подпиской: {manage_url}\n"
+            + f"- Отключить подписку: {unsubscribe_url}\n"
         )
     else:
         body = (
@@ -579,6 +594,43 @@ def format_provenance_block(report: Dict[str, object]) -> str:
         if scanned_at:
             line += f", scanned_at={scanned_at}"
         lines.append(line)
+    return "\n".join(lines) + "\n"
+
+
+def subscription_links(subscription_id: int, email: str, public_base_url: str) -> tuple[str, str]:
+    manage_url = f"{public_base_url}/monitor-status"
+    owner_secret = build_monitor_token_secret(
+        monitoring_token_secret=os.getenv("MONITORING_TOKEN_SECRET", ""),
+        database_url=os.getenv("DATABASE_URL", ""),
+        redis_url=os.getenv("REDIS_URL", ""),
+        public_base_url=os.getenv("PUBLIC_BASE_URL", "https://tlsaudit.ru"),
+        contact_email=os.getenv("CONTACT_EMAIL", "info@tlsaudit.ru"),
+    )
+    owner_token = create_monitor_owner_token(email, owner_secret)
+    if owner_token:
+        manage_url = f"{manage_url}?token={owner_token}"
+    unsubscribe_url = f"{public_base_url}/"
+    try:
+        item = subscription_store.get_by_id(int(subscription_id))
+        if item and getattr(item, "token", None):
+            unsubscribe_url = f"{public_base_url}/api/subscriptions/monitoring/unsubscribe?token={item.token}"
+    except Exception:
+        pass
+    return manage_url, unsubscribe_url
+
+
+def format_pro_digest(diff: Optional[MonitoringDiff]) -> str:
+    if diff is None:
+        return ""
+    added = [item for item in (diff.added_findings or []) if str(item.severity).lower() in {"critical", "high"}]
+    resolved = [item for item in (diff.resolved_findings or []) if str(item.severity).lower() in {"critical", "high"}]
+    if not added and not resolved:
+        return "Digest: критичных/high изменений не обнаружено.\n"
+    lines = ["Digest (critical/high):"]
+    if added:
+        lines.append("- Добавились: " + "; ".join(item.title for item in added[:3] if item.title))
+    if resolved:
+        lines.append("- Ушли: " + "; ".join(item.title for item in resolved[:3] if item.title))
     return "\n".join(lines) + "\n"
 
 

@@ -1012,9 +1012,10 @@ def render_static_page(page_key: str) -> str:
                       const sev = String(event.severity || 'info').toLowerCase();
                       const when = event.created_at ? new Date(event.created_at).toLocaleString('ru-RU') : '—';
                       const scanLink = event.scan_id ? `<a href="/scan?job=${encodeURIComponent(event.scan_id)}" target="_blank" rel="noopener">scan</a>` : '';
-                      const diffLink = event.scan_id ? `<a href="/api/report/${encodeURIComponent(event.scan_id)}/compare" target="_blank" rel="noopener">diff</a>` : '';
+                      const diffUiLink = event.scan_id ? `<a href="/scan?job=${encodeURIComponent(event.scan_id)}#compare-section" target="_blank" rel="noopener">diff-view</a>` : '';
+                      const diffJsonLink = event.scan_id ? `<a href="/api/report/${encodeURIComponent(event.scan_id)}/compare" target="_blank" rel="noopener">diff-json</a>` : '';
                       const badge = `<span class="sev-badge ${escapeHtml(sev)}">${escapeHtml((event.severity || 'info').toUpperCase())}</span>`;
-                      return `<li>${badge}<strong>${event.title || event.event_type || 'Событие'}</strong> · ${when} ${scanLink} ${diffLink}</li>`;
+                      return `<li>${badge}<strong>${event.title || event.event_type || 'Событие'}</strong> · ${when} ${scanLink} ${diffUiLink} ${diffJsonLink}</li>`;
                     }).join('')
                   : '<li>Событий пока нет.</li>';
                 return `
