@@ -238,6 +238,10 @@ progress and report rendering work.
 Additional v0.2 checks:
 
 - create free monitoring subscription and confirm by email token;
+- trust-zone security regression:
+  - `curl -s https://tlsaudit.ru/api/monitor/domains` must return `404`;
+  - `curl -s -H 'x-monitoring-admin-token: wrong' https://tlsaudit.ru/api/monitor/domains` must return `404`;
+  - owner endpoints (`/api/subscriptions/monitoring*`) must work only with a valid owner token.
 - create pro subscription and verify ownership challenge endpoints;
 - trigger `run-now` and confirm report email delivery;
 - confirm no duplicate weekly delivery for the same scan.

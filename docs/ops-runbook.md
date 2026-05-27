@@ -40,6 +40,10 @@
 3. Почта:
    - получить письмо подтверждения;
    - проверить ссылку confirm/unsubscribe.
+4. Trust zones (обязательно):
+   - `curl -s -o /tmp/mon.out -w '%{http_code}' https://tlsaudit.ru/api/monitor/domains` -> `404`;
+   - `curl -s -o /tmp/mon2.out -w '%{http_code}' -H 'x-monitoring-admin-token: wrong' https://tlsaudit.ru/api/monitor/domains` -> `404`;
+   - открыть owner-ссылку `/monitor-status?token=...` и убедиться, что управление доступно только по валидному owner token.
 
 ## 5. Проверка мониторинга
 
@@ -75,3 +79,14 @@
 - размер БД и скорость роста;
 - размер каталога `backups`;
 - docker image/cache.
+
+## 8. CI контроль
+
+На каждый push/PR должен пройти workflow `.github/workflows/ci.yml`:
+
+- общий прогон unit-тестов;
+- обязательный trust-zone regression:
+  - `tests.test_monitor_admin_api`
+  - `tests.test_monitoring_access`
+
+Релиз в прод без зелёного CI не выполнять.
