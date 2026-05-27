@@ -1578,6 +1578,29 @@ def render_frontend() -> str:
       font-weight: 750;
     }
     .finding p, .recommendation p { overflow-wrap: anywhere; }
+    .proof-box {
+      margin-top: 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+      padding: 8px 10px;
+    }
+    .proof-box summary {
+      cursor: pointer;
+      font-weight: 700;
+      color: var(--blue);
+    }
+    .proof-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .proof-kv {
+      margin-top: 6px;
+      font-size: 13px;
+      color: var(--muted);
+    }
     .detail-list {
       margin: 8px 0 0;
       padding-left: 18px;
@@ -2349,6 +2372,7 @@ def render_frontend() -> str:
             <span class="severity">${escapeHtml(severityLabels[finding.severity] || finding.severity || 'Info')}</span>
           </div>
           ${renderFindingDetail(finding)}
+          ${renderFindingProof(finding)}
           ${finding.grade_cap ? `<p class="muted" style="margin-top:6px">Ограничение оценки: ${escapeHtml(displayGrade(finding.grade_cap))}</p>` : ''}
         </article>
       `).join('') + '</div>';
@@ -2458,6 +2482,28 @@ def render_frontend() -> str:
       ].filter(Boolean);
       if (!facts.length) return '';
       return `<div class="evidence-meta">${facts.join('')}</div>`;
+    }
+
+    function renderFindingProof(finding) {
+      const severity = String(finding.severity || '').toLowerCase();
+      if (severity !== 'critical' && severity !== 'high') return '';
+      const evidence = finding.evidence || {};
+      const details = finding.details || [];
+      const source = prettySourceLabel(evidence.source || '');
+      const payloadRows = [];
+      if (evidence.id) payloadRows.push(`<div class="proof-kv"><strong>Проверка:</strong> ${escapeHtml(String(evidence.id))}</div>`);
+      if (evidence.cve) payloadRows.push(`<div class="proof-kv"><strong>CVE:</strong> ${escapeHtml(String(evidence.cve))}</div>`);
+      if (evidence.severity) payloadRows.push(`<div class="proof-kv"><strong>Scanner severity:</strong> ${escapeHtml(String(evidence.severity))}</div>`);
+      if (details.length > 0) payloadRows.push(`<div class="proof-kv"><strong>Факты:</strong> ${escapeHtml(details.slice(0, 3).join(' | '))}</div>`);
+      const sourceChip = source ? chip('Источник: ' + source, 'info') : chip('Источник: не указан', 'info');
+      const codeChip = finding.code ? chip('Код: ' + String(finding.code), 'info') : '';
+      return `
+        <details class="proof-box">
+          <summary>Proof (critical/high)</summary>
+          <div class="proof-meta">${sourceChip}${codeChip}</div>
+          ${payloadRows.join('')}
+        </details>
+      `;
     }
 
     function renderEvidenceOverview(report, jobId, sources) {
