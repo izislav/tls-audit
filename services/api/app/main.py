@@ -942,6 +942,17 @@ def export_monitoring_csv(token: str, limit: int = 50, events_limit: int = 20) -
     return Response(content=csv_text, media_type="text/csv; charset=utf-8", headers=headers)
 
 
+@app.get("/api/subscriptions/monitoring/digest.json")
+def monitoring_digest_json(token: str, limit: int = 20, events_limit: int = 20) -> Dict[str, object]:
+    normalized = require_monitor_owner_token(token)
+    return build_monitoring_digest_payload(
+        normalized_email=normalized,
+        token=token,
+        limit=limit,
+        events_limit=events_limit,
+    )
+
+
 @app.get("/api/subscriptions/monitoring/confirm", response_class=HTMLResponse)
 def confirm_monitor_subscription(token: str) -> HTMLResponse:
     sub = subscription_store.confirm(token)
@@ -1291,6 +1302,88 @@ def build_monitoring_export_payload(
         "generated_at": iso_or_none(datetime.now(timezone.utc)),
         "manage_token": token,
         "items": export_items,
+    }
+
+
+def build_monitoring_digest_payload(
+    normalized_email: str,
+    token: str,
+    limit: int = 20,
+    events_limit: int = 20,
+) -> Dict[str, object]:
+    payload = build_monitoring_export_payload(
+        normalized_email=normalized_email,
+        token=token,
+        limit=limit,
+        events_limit=events_limit,
+    )
+    base_url = settings.public_base_url.rstrip("/")
+    severity_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    digest_items: List[Dict[str, object]] = []
+    for item in payload.get("items", []):
+        if not isinstance(item, dict):
+            continue
+        events = item.get("events") or []
+        normalized_events: List[Dict[str, object]] = []
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            sev = str(event.get("severity") or "info").lower()
+            scan_id = str(event.get("scan_id") or "").strip()
+            normalized_events.append(
+                {
+                    "event_type": event.get("event_type"),
+                    "severity": sev,
+                    "title": event.get("title"),
+                    "detail": event.get("detail"),
+                    "created_at": event.get("created_at"),
+                    "scan_id": scan_id or None,
+                    "scan_url": f"{base_url}/scan?job={scan_id}" if scan_id else None,
+                    "diff_url": f"{base_url}/api/report/{scan_id}/compare" if scan_id else None,
+                }
+            )
+        normalized_events.sort(
+            key=lambda entry: (
+                severity_rank.get(str(entry.get("severity") or "info"), 9),
+                str(entry.get("created_at") or ""),
+            ),
+        )
+        top_events = normalized_events[:5]
+        critical_high = [
+            event
+            for event in normalized_events
+            if str(event.get("severity") or "").lower() in {"critical", "high"}
+        ]
+        latest_scan_id = None
+        for event in normalized_events:
+            value = event.get("scan_id")
+            if value:
+                latest_scan_id = str(value)
+                break
+        digest_items.append(
+            {
+                "subscription_id": item.get("subscription_id"),
+                "host": item.get("host"),
+                "port": item.get("port"),
+                "plan": item.get("plan"),
+                "delivery_status": "paused_ownership"
+                if item.get("plan") == "pro" and not item.get("ownership_verified")
+                else "active",
+                "ownership_verified": item.get("ownership_verified"),
+                "last_sent_at": item.get("last_sent_at"),
+                "next_run_at": item.get("next_run_at"),
+                "critical_high_count": len(critical_high),
+                "top_events": top_events,
+                "latest_scan_id": latest_scan_id,
+                "latest_scan_url": (f"{base_url}/scan?job={latest_scan_id}" if latest_scan_id else None),
+                "latest_diff_url": (f"{base_url}/api/report/{latest_scan_id}/compare" if latest_scan_id else None),
+            }
+        )
+    return {
+        "email": normalized_email,
+        "generated_at": payload.get("generated_at"),
+        "manage_url": f"{base_url}/monitor-status?token={token}",
+        "items": digest_items,
     }
 
 
