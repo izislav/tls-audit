@@ -450,6 +450,19 @@ def send_subscription_alert_report(
     host = str(job.get("host") or "")
     grade = str(report.get("grade") or "n/a")
     score = report.get("score")
+    public_base_url = os.getenv("PUBLIC_BASE_URL", "https://tlsaudit.ru").strip().rstrip("/")
+    job_id = str(job.get("id") or "")
+    scan_url = f"{public_base_url or 'https://tlsaudit.ru'}/scan?job={job_id}" if job_id else ""
+    diff_url = f"{public_base_url or 'https://tlsaudit.ru'}/scan?job={job_id}#compare-section" if job_id else ""
+    manage_url, _unsubscribe_url = subscription_links(
+        subscription_id=subscription_id,
+        email=email,
+        public_base_url=(public_base_url or "https://tlsaudit.ru"),
+    )
+    digest_json_url = owner_digest_json_url(
+        email=email,
+        public_base_url=(public_base_url or "https://tlsaudit.ru"),
+    )
     immediate_pairs: list[tuple[str, MonitoringEvent]] = []
     seen_in_batch: set[str] = set()
     for event in immediate_events:
@@ -477,6 +490,17 @@ def send_subscription_alert_report(
         for _alert_key, event in immediate_pairs:
             detail = f": {event.detail}" if event.detail else ""
             lines.append(f"- [{event.severity.upper()}] {event.title}{detail}")
+        if scan_url:
+            lines.extend(
+                [
+                    "",
+                    "Ссылки:",
+                    f"- Scan: {scan_url}",
+                    f"- Diff view: {diff_url}",
+                    f"- Управление подпиской: {manage_url}",
+                    f"- Owner digest JSON: {digest_json_url}",
+                ]
+            )
         body = "\n".join(lines) + "\n"
         try:
             sent = send_email(
@@ -523,6 +547,17 @@ def send_subscription_alert_report(
             for event in recent_digest_events[:12]:
                 detail = f": {event.detail}" if event.detail else ""
                 lines.append(f"- [{event.severity.upper()}] {event.title}{detail}")
+            if scan_url:
+                lines.extend(
+                    [
+                        "",
+                        "Ссылки:",
+                        f"- Scan: {scan_url}",
+                        f"- Diff view: {diff_url}",
+                        f"- Управление подпиской: {manage_url}",
+                        f"- Owner digest JSON: {digest_json_url}",
+                    ]
+                )
             body = "\n".join(lines) + "\n"
             try:
                 sent = send_email(
@@ -752,6 +787,18 @@ def subscription_links(subscription_id: int, email: str, public_base_url: str) -
     except Exception:
         pass
     return manage_url, unsubscribe_url
+
+
+def owner_digest_json_url(email: str, public_base_url: str) -> str:
+    owner_secret = build_monitor_token_secret(
+        monitoring_token_secret=os.getenv("MONITORING_TOKEN_SECRET", ""),
+        database_url=os.getenv("DATABASE_URL", ""),
+        redis_url=os.getenv("REDIS_URL", ""),
+        public_base_url=os.getenv("PUBLIC_BASE_URL", "https://tlsaudit.ru"),
+        contact_email=os.getenv("CONTACT_EMAIL", "info@tlsaudit.ru"),
+    )
+    owner_token = create_monitor_owner_token(email, owner_secret)
+    return f"{public_base_url}/api/subscriptions/monitoring/digest.json?token={owner_token}"
 
 
 def format_pro_digest(diff: Optional[MonitoringDiff]) -> str:

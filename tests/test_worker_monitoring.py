@@ -339,6 +339,7 @@ class WorkerMonitoringTests(unittest.TestCase):
         self.assertTrue(any("Сертификат скоро истечет" in body for body in bodies))
         self.assertTrue(any("Сертификат истек" in body for body in bodies))
         self.assertTrue(any("C (70/100)" in body for body in bodies))
+        self.assertTrue(any("Owner digest JSON" in body for body in bodies))
         self.assertGreaterEqual(mark_alert_sent.call_count, 3)
 
     def test_send_subscription_alert_report_respects_daily_cooldown(self) -> None:
@@ -436,6 +437,7 @@ class WorkerMonitoringTests(unittest.TestCase):
             worker.send_subscription_alert_report(job, events, report)
         body = send_email.call_args.kwargs["body"]
         self.assertIn("Оценка TLS ухудшилась", body)
+        self.assertIn("Owner digest JSON", body)
         self.assertEqual(mark_alert_sent.call_count, 1)
 
     def test_send_subscription_alert_report_ignores_unimportant_events(self) -> None:
