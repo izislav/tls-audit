@@ -287,6 +287,7 @@ def send_subscription_report(
             else cert_status
         )
         positive_checks = positive_checks_block(report)
+        good_checks = good_checks_block(report)
         status_line = "Статус безопасности: без новых рисков" if not critical_changes.strip() else "Статус безопасности: есть изменения, требуется внимание"
         body = (
             "TLS Audit Pro — Security status digest\n"
@@ -310,6 +311,7 @@ def send_subscription_report(
             )
             + (f"\nКритические изменения:\n{critical_changes}\n" if critical_changes else "")
             + (f"\nЧто важно сейчас:\n{actions_now}\n" if actions_now else "")
+            + (f"\nЧто уже настроено правильно:\n{good_checks}\n" if good_checks else "")
             + (f"\nПоложительные проверки:\n{positive_checks}\n" if positive_checks else "")
             + "\nПолный отчёт:\n"
             + (f"{report_link}\n" if has_public_report_link else f"{manage_url}\n")
@@ -813,6 +815,39 @@ def positive_checks_block(report: Dict[str, object]) -> str:
         if not has_critical:
             lines.append("- Критических уязвимостей в текущем скане не найдено.")
     return "\n".join(lines[:3])
+
+
+def good_checks_block(report: Dict[str, object]) -> str:
+    lines: list[str] = []
+    cert = report.get("certificate")
+    if isinstance(cert, dict):
+        days = optional_int(cert.get("expires_in_days"))
+        if days is not None and days >= 0:
+            lines.append("✓ Сертификат валиден")
+    protocols = report.get("protocols")
+    if isinstance(protocols, dict):
+        enabled = protocols.get("enabled")
+        if isinstance(enabled, list):
+            enabled_norm = [str(item).strip() for item in enabled if str(item).strip()]
+            if "TLS 1.3" in enabled_norm:
+                lines.append("✓ TLS 1.3 поддерживается")
+            elif "TLS 1.2" in enabled_norm:
+                lines.append("✓ TLS 1.2 поддерживается")
+    findings = report.get("findings")
+    if isinstance(findings, list):
+        has_critical = any(
+            isinstance(item, dict) and str(item.get("severity") or "").strip().lower() == "critical"
+            for item in findings
+        )
+        if not has_critical:
+            lines.append("✓ Критичных TLS-уязвимостей не обнаружено")
+    summary = report.get("summary")
+    if isinstance(summary, list):
+        negative_markers = ("недоступ", "ошибк", "сбой")
+        summary_text = " ".join(str(item).lower() for item in summary)
+        if summary_text and not any(marker in summary_text for marker in negative_markers):
+            lines.append("✓ HTTPS продолжает работать стабильно")
+    return "\n".join(lines[:4])
 
 
 def format_diff_block(diff: Optional[MonitoringDiff], detailed: bool = False) -> str:
