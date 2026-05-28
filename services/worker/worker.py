@@ -270,7 +270,7 @@ def send_subscription_report(
     cert_days_value = optional_int(cert_days)
     summary = report.get("summary") or []
     top = summary[0] if isinstance(summary, list) and summary else "Отчёт сформирован."
-    actions_now = top_actions_block(report, limit=3)
+    actions_now = top_actions_summary(report, limit=2)
     subject = f"TLS Audit: Security status digest {host} — {grade}"
     if plan == "support":
         manage_url, unsubscribe_url = subscription_links(
@@ -299,7 +299,7 @@ def send_subscription_report(
             + f"Сертификат: {cert_status}\n"
             + f"Статус: {top}\n"
             + (f"\nКритические изменения:\n{critical_changes}\n" if critical_changes else "")
-            + (f"\nЧто делать сейчас:\n{actions_now}\n" if actions_now else "")
+            + (f"\nЧто важно сейчас:\n{actions_now}\n" if actions_now else "")
             + (f"\nПоложительные проверки:\n{positive_checks}\n" if positive_checks else "")
             + "\nПолный отчёт:\n"
             + (f"{report_link}\n" if has_public_report_link else f"{manage_url}\n")
@@ -702,18 +702,11 @@ def top_findings(report: Dict[str, object], limit: int = 3) -> str:
     return "\n".join(lines)
 
 
-def top_actions_block(report: Dict[str, object], limit: int = 3) -> str:
+def top_actions_summary(report: Dict[str, object], limit: int = 2) -> str:
     items = report.get("findings") or []
     if not isinstance(items, list):
         return ""
     severity_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-    risk_map = {
-        "critical": "высокий риск компрометации или отказа",
-        "high": "существенный риск снижения безопасности",
-        "medium": "умеренный риск, нужна плановая правка",
-        "low": "низкий риск, улучшение конфигурации",
-        "info": "информационное замечание",
-    }
     normalized: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for item in items:
@@ -727,34 +720,18 @@ def top_actions_block(report: Dict[str, object], limit: int = 3) -> str:
         if key in seen:
             continue
         seen.add(key)
-        recommendation = extract_recommendation(item)
         normalized.append(
             {
                 "severity": severity,
                 "title": title,
-                "risk": risk_map.get(severity, "требует проверки"),
-                "fix": recommendation or "См. блок рекомендаций в полном отчёте.",
             }
         )
     normalized.sort(key=lambda item: severity_rank.get(item["severity"], 9))
     lines: list[str] = []
     for idx, item in enumerate(normalized[: max(1, int(limit))], start=1):
-        lines.append(
-            f"{idx}. {item['title']} — риск: {item['risk']}. Правка: {item['fix']}"
-        )
+        lines.append(f"{idx}. {item['title']}")
+    lines.append("Подробные команды и конфиги — в полном отчёте.")
     return "\n".join(lines)
-
-
-def extract_recommendation(finding: Dict[str, object]) -> str:
-    recommendation = finding.get("recommendation")
-    if isinstance(recommendation, str):
-        return recommendation.strip()
-    if isinstance(recommendation, dict):
-        for key in ("nginx", "apache", "iis", "text"):
-            value = recommendation.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-    return ""
 
 
 def format_critical_changes(diff: Optional[MonitoringDiff]) -> str:

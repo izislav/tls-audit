@@ -97,7 +97,7 @@ class WorkerMonitoringTests(unittest.TestCase):
         archive_store.save_report.assert_called()
         self.assertTrue(send_email.called)
         bodies = [call.kwargs.get("body", "") for call in send_email.call_args_list]
-        self.assertTrue(any("Что делать сейчас" in body for body in bodies))
+        self.assertTrue(any("Что важно сейчас" in body for body in bodies))
         mark_sent.assert_called_once_with(22)
 
     def test_send_subscription_report_includes_diff_summary(self) -> None:
