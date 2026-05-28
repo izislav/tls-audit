@@ -779,6 +779,7 @@ def monitor_scan_now(
         monitoring_store=monitoring_store,
         job_store=job_store,
         enqueue_scan_job=enqueue_scan_job,
+        archive_store=archive_store,
         target_scan_guard=target_scan_guard,
     )
     if isinstance(scheduled, dict):

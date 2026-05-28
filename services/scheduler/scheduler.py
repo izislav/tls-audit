@@ -5,6 +5,7 @@ from datetime import timezone
 from typing import Callable, Optional
 
 from services.api.app.jobs import job_store
+from services.api.app.archive import archive_store
 from services.api.app.monitoring import monitoring_store
 from services.api.app.queue import enqueue_scan_job
 from services.api.app.subscriptions import subscription_store
@@ -41,6 +42,7 @@ def run_once(limit: Optional[int] = None) -> SchedulerResult:
         monitoring_store=monitoring_store,
         job_store=job_store,
         enqueue_scan_job=enqueue_scan_job,
+        archive_store=archive_store,
         target_scan_guard=target_scan_guard,
         limit=batch_size,
     )
@@ -71,6 +73,7 @@ def process_subscriptions(limit: int) -> None:
             monitoring_store=monitoring_store,
             job_store=job_store,
             enqueue_scan_job=enqueue_scan_job,
+            archive_store=archive_store,
             target_scan_guard=target_scan_guard,
             payload_extra={
                 "subscription_id": sub.id,
@@ -118,6 +121,7 @@ def run_subscription_now(subscription_id: int) -> dict:
         monitoring_store=monitoring_store,
         job_store=job_store,
         enqueue_scan_job=enqueue_scan_job,
+        archive_store=archive_store,
         target_scan_guard=target_scan_guard,
         payload_extra={
             "subscription_id": sub.id,

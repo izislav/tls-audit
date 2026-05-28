@@ -26,6 +26,7 @@ def schedule_due_scans(
     monitoring_store: NullMonitoringStore,
     job_store,
     enqueue_scan_job: Callable[[Dict[str, object]], None],
+    archive_store=None,
     target_scan_guard: Optional[TargetScanGuard] = None,
     limit: int = 50,
 ) -> SchedulerResult:
@@ -36,6 +37,7 @@ def schedule_due_scans(
             monitoring_store,
             job_store,
             enqueue_scan_job,
+            archive_store=archive_store,
             target_scan_guard=target_scan_guard,
         )
         if isinstance(scheduled, ScheduledScan):
@@ -50,6 +52,7 @@ def schedule_domain_scan(
     monitoring_store: NullMonitoringStore,
     job_store,
     enqueue_scan_job: Callable[[Dict[str, object]], None],
+    archive_store=None,
     target_scan_guard: Optional[TargetScanGuard] = None,
     payload_extra: Optional[Dict[str, object]] = None,
 ):
@@ -81,6 +84,8 @@ def schedule_domain_scan(
     }
     if payload_extra:
         payload.update(payload_extra)
+    if archive_store and getattr(archive_store, "enabled", False):
+        archive_store.create_scan(job)
     try:
         enqueue_scan_job(payload)
     except Exception as exc:
