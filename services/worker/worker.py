@@ -27,6 +27,7 @@ POLL_SECONDS = float(os.getenv("WORKER_POLL_SECONDS", "1.0"))
 TARGET_COOLDOWN_SECONDS = int(os.getenv("TARGET_COOLDOWN_SECONDS", "30"))
 ACTIVE_SCAN_TTL_SECONDS = int(os.getenv("ACTIVE_SCAN_TTL_SECONDS", "900"))
 ALERT_COOLDOWN_SECONDS = int(os.getenv("ALERT_COOLDOWN_SECONDS", "86400"))
+REPORT_COOLDOWN_SECONDS = int(os.getenv("REPORT_COOLDOWN_SECONDS", "43200"))
 job_store = create_job_store(REDIS_URL)
 archive_store = create_archive_store(DATABASE_URL)
 monitoring_store = create_monitoring_store(DATABASE_URL)
@@ -231,6 +232,16 @@ def send_subscription_report(
             scan_id=job_id,
         )
         return
+    if not subscription_store.should_send_alert(subscription_id, "weekly_report", REPORT_COOLDOWN_SECONDS):
+        log_event(
+            logger,
+            "subscription_report_email_skipped",
+            subscription_id=subscription_id,
+            email=email,
+            reason="report_cooldown_active",
+            cooldown_seconds=REPORT_COOLDOWN_SECONDS,
+        )
+        return
     smtp_url = os.getenv("SMTP_URL", "").strip()
     if not smtp_url:
         log_event(
@@ -310,6 +321,7 @@ def send_subscription_report(
         if sent:
             subscription_store.mark_report_sent(subscription_id, job_id)
             subscription_store.mark_sent(subscription_id)
+            subscription_store.mark_alert_sent(subscription_id, "weekly_report")
     except Exception as exc:  # noqa: BLE001
         log_event(
             logger,

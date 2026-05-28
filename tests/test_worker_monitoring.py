@@ -244,6 +244,39 @@ class WorkerMonitoringTests(unittest.TestCase):
         mark_report_sent.assert_not_called()
         mark_sent.assert_not_called()
 
+    def test_send_subscription_report_respects_report_cooldown(self) -> None:
+        job = {
+            "id": "job-cooldown",
+            "host": "example.ru",
+            "port": 443,
+            "subscription_id": 18,
+            "subscription_email": "admin@example.ru",
+            "subscription_plan": "free",
+        }
+        report = {"grade": "A", "score": 93, "summary": ["Стабильная конфигурация"], "findings": []}
+        should_send_effect = [True, False]
+        with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
+            worker.subscription_store, "should_send_report", return_value=True
+        ), patch.object(
+            worker.subscription_store, "should_send_alert", side_effect=should_send_effect
+        ), patch.object(
+            worker.subscription_store, "mark_report_sent"
+        ) as mark_report_sent, patch.object(
+            worker.subscription_store, "mark_alert_sent"
+        ) as mark_alert_sent, patch.object(
+            worker.subscription_store, "mark_sent"
+        ) as mark_sent, patch.dict(
+            os.environ,
+            {"SMTP_URL": "smtps://example:465", "PUBLIC_BASE_URL": "http://127.0.0.1:8000"},
+            clear=False,
+        ):
+            worker.send_subscription_report(job, report, None)
+            worker.send_subscription_report(job, report, None)
+        self.assertEqual(send_email.call_count, 1)
+        mark_report_sent.assert_called_once_with(18, "job-cooldown")
+        mark_sent.assert_called_once_with(18)
+        mark_alert_sent.assert_called_once_with(18, "weekly_report")
+
     def test_send_subscription_failure_report_marks_critical_delivery(self) -> None:
         job = {
             "id": "job-3",
