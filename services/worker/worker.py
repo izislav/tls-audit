@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 
 from shared.tls_audit.adapter import run_full_scan
@@ -29,6 +30,7 @@ ACTIVE_SCAN_TTL_SECONDS = int(os.getenv("ACTIVE_SCAN_TTL_SECONDS", "900"))
 ALERT_COOLDOWN_SECONDS = int(os.getenv("ALERT_COOLDOWN_SECONDS", "86400"))
 REPORT_COOLDOWN_SECONDS = int(os.getenv("REPORT_COOLDOWN_SECONDS", "43200"))
 ALERT_BATCH_COOLDOWN_SECONDS = int(os.getenv("ALERT_BATCH_COOLDOWN_SECONDS", "1800"))
+NONCRITICAL_DIGEST_COOLDOWN_SECONDS = int(os.getenv("NONCRITICAL_DIGEST_COOLDOWN_SECONDS", "86400"))
 job_store = create_job_store(REDIS_URL)
 archive_store = create_archive_store(DATABASE_URL)
 monitoring_store = create_monitoring_store(DATABASE_URL)
@@ -405,10 +407,22 @@ def send_subscription_alert_report(
         "legacy_tls_enabled",
         "critical_added",
         "scan_failed",
+        "high_added",
     }
     interesting = [event for event in events if event.event_type in interesting_types]
     if not interesting:
         return
+    immediate_types = {"certificate_expired", "critical_added", "scan_failed"}
+    immediate_events = [
+        event
+        for event in interesting
+        if event.event_type in immediate_types or str(event.severity or "").strip().lower() == "critical"
+    ]
+    digest_events = [
+        event
+        for event in interesting
+        if event not in immediate_events
+    ]
     subscription_id = optional_int(job.get("subscription_id"))
     email = str(job.get("subscription_email") or "").strip()
     if not subscription_id or not email:
@@ -433,9 +447,12 @@ def send_subscription_alert_report(
     smtp_url = os.getenv("SMTP_URL", "").strip()
     if not smtp_url:
         return
-    deliverable_pairs: list[tuple[str, MonitoringEvent]] = []
+    host = str(job.get("host") or "")
+    grade = str(report.get("grade") or "n/a")
+    score = report.get("score")
+    immediate_pairs: list[tuple[str, MonitoringEvent]] = []
     seen_in_batch: set[str] = set()
-    for event in interesting:
+    for event in immediate_events:
         alert_key = alert_key_for_event(event)
         if alert_key in seen_in_batch:
             continue
@@ -445,53 +462,128 @@ def send_subscription_alert_report(
             alert_cooldown_for_event(event.event_type),
         ):
             seen_in_batch.add(alert_key)
-            deliverable_pairs.append((alert_key, event))
-    if not deliverable_pairs:
-        return
-    host = str(job.get("host") or "")
-    grade = str(report.get("grade") or "n/a")
-    score = report.get("score")
-    subject = f"TLS Audit Pro alert: {host} — {deliverable_pairs[0][1].title}"
-    lines = [
-        "TLS Audit Pro — alert",
-        "=====================",
-        f"Домен: {host}",
-        f"Оценка: {grade}" + (f" ({score}/100)" if score is not None else ""),
-        "",
-        "События:",
-    ]
-    for _alert_key, event in deliverable_pairs:
-        detail = f": {event.detail}" if event.detail else ""
-        lines.append(f"- [{event.severity.upper()}] {event.title}{detail}")
-    body = "\n".join(lines) + "\n"
-    try:
-        sent = send_email(
-            smtp_url=smtp_url,
-            smtp_user=os.getenv("SMTP_USER", "").strip(),
-            smtp_password=os.getenv("SMTP_PASSWORD", "").strip(),
-            mail_from=os.getenv("ALERT_EMAIL_FROM", "tls-audit@localhost").strip(),
-            mail_to=email,
-            subject=subject,
-            body=body,
-        )
-        if sent:
-            subscription_store.mark_alert_sent(
-                subscription_id,
-                "alert_batch",
+            immediate_pairs.append((alert_key, event))
+
+    if immediate_pairs:
+        subject = f"TLS Audit Pro alert: {host} — {immediate_pairs[0][1].title}"
+        lines = [
+            "TLS Audit Pro — alert",
+            "=====================",
+            f"Домен: {host}",
+            f"Оценка: {grade}" + (f" ({score}/100)" if score is not None else ""),
+            "",
+            "События:",
+        ]
+        for _alert_key, event in immediate_pairs:
+            detail = f": {event.detail}" if event.detail else ""
+            lines.append(f"- [{event.severity.upper()}] {event.title}{detail}")
+        body = "\n".join(lines) + "\n"
+        try:
+            sent = send_email(
+                smtp_url=smtp_url,
+                smtp_user=os.getenv("SMTP_USER", "").strip(),
+                smtp_password=os.getenv("SMTP_PASSWORD", "").strip(),
+                mail_from=os.getenv("ALERT_EMAIL_FROM", "tls-audit@localhost").strip(),
+                mail_to=email,
+                subject=subject,
+                body=body,
             )
-            for alert_key, _event in deliverable_pairs:
-                subscription_store.mark_alert_sent(
-                    subscription_id,
-                    alert_key,
-                )
-    except Exception as exc:  # noqa: BLE001
-        log_event(
-            logger,
-            "subscription_alert_email_failed",
-            subscription_id=subscription_id,
-            email=email,
-            error=str(exc),
+            if sent:
+                subscription_store.mark_alert_sent(subscription_id, "alert_batch")
+                for alert_key, _event in immediate_pairs:
+                    subscription_store.mark_alert_sent(subscription_id, alert_key)
+        except Exception as exc:  # noqa: BLE001
+            log_event(
+                logger,
+                "subscription_alert_email_failed",
+                subscription_id=subscription_id,
+                email=email,
+                error=str(exc),
+            )
+
+    if digest_events and subscription_store.should_send_alert(
+        subscription_id,
+        "noncritical_digest",
+        NONCRITICAL_DIGEST_COOLDOWN_SECONDS,
+    ):
+        recent_digest_events = collect_recent_noncritical_events(
+            job=job,
+            fallback_events=digest_events,
         )
+        if recent_digest_events:
+            subject = f"TLS Audit Pro digest: {host} — изменения за 24 часа"
+            lines = [
+                "TLS Audit Pro — digest",
+                "=======================",
+                f"Домен: {host}",
+                f"Оценка: {grade}" + (f" ({score}/100)" if score is not None else ""),
+                "",
+                "Некритичные изменения (накоплено за 24 часа):",
+            ]
+            for event in recent_digest_events[:12]:
+                detail = f": {event.detail}" if event.detail else ""
+                lines.append(f"- [{event.severity.upper()}] {event.title}{detail}")
+            body = "\n".join(lines) + "\n"
+            try:
+                sent = send_email(
+                    smtp_url=smtp_url,
+                    smtp_user=os.getenv("SMTP_USER", "").strip(),
+                    smtp_password=os.getenv("SMTP_PASSWORD", "").strip(),
+                    mail_from=os.getenv("ALERT_EMAIL_FROM", "tls-audit@localhost").strip(),
+                    mail_to=email,
+                    subject=subject,
+                    body=body,
+                )
+                if sent:
+                    subscription_store.mark_alert_sent(subscription_id, "noncritical_digest")
+            except Exception as exc:  # noqa: BLE001
+                log_event(
+                    logger,
+                    "subscription_alert_email_failed",
+                    subscription_id=subscription_id,
+                    email=email,
+                    error=str(exc),
+                )
+
+
+def collect_recent_noncritical_events(
+    job: Dict[str, object],
+    fallback_events: list[MonitoringEvent],
+) -> list[MonitoringEvent]:
+    monitored_domain_id = optional_int(job.get("monitored_domain_id"))
+    if not monitored_domain_id:
+        return fallback_events
+    rows = monitoring_store.list_events(monitored_domain_id, limit=100)
+    if not rows:
+        return fallback_events
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    result: list[MonitoringEvent] = []
+    allowed_types = {"certificate_expiring", "grade_degraded", "legacy_tls_enabled", "high_added"}
+    for row in rows:
+        event_type = str(row.get("event_type") or "").strip()
+        severity = str(row.get("severity") or "").strip().lower()
+        if event_type not in allowed_types:
+            continue
+        if severity == "critical":
+            continue
+        created_at = row.get("created_at")
+        created_dt = created_at if isinstance(created_at, datetime) else None
+        if created_dt is None or created_dt.tzinfo is None:
+            continue
+        if created_dt < cutoff:
+            continue
+        result.append(
+            MonitoringEvent(
+                event_type=event_type,
+                severity=severity or "info",
+                title=str(row.get("title") or event_type),
+                detail=str(row.get("detail") or ""),
+                payload=row.get("payload") if isinstance(row.get("payload"), dict) else None,
+            )
+        )
+    if not result:
+        return fallback_events
+    return result
 
 
 def alert_cooldown_for_event(event_type: str) -> int:
