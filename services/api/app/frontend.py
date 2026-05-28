@@ -871,7 +871,8 @@ def render_static_page(page_key: str) -> str:
               };
               const ownershipText = (item) => {
                 if (item.plan !== 'pro' && item.plan !== 'support') return 'Не требуется';
-                return item.ownership_verified ? 'Подтверждено' : 'Не подтверждено';
+                if (item.ownership_verified) return 'Подтверждено';
+                return 'Не подтверждено (Pro paused)';
               };
               const flowText = (item) => {
                 if (!item.confirmed) return '1) Подтвердите email';
@@ -890,6 +891,7 @@ def render_static_page(page_key: str) -> str:
                   <td>${formatDate(item.next_run_at)}</td>
                   <td>${flowText(item)}</td>
                   <td class="monitor-actions">
+                    ${(item.plan === 'pro' || item.plan === 'support') && !item.pro_delivery_ready ? `<div class="muted" style="margin-bottom:6px">Отчёты и alert paused до ownership verify</div>` : ''}
                     ${item.confirmed && item.enabled ? `<button class="btn-action btn-run" data-run-now="${item.id}" type="button">Запустить</button>` : ''}
                     ${item.latest_scan_id ? `<a class="ghost-button" href="/scan?job=${encodeURIComponent(item.latest_scan_id)}" target="_blank" rel="noopener">Отчёт</a>` : ''}
                     ${item.latest_scan_id ? `<a class="ghost-button" href="/api/report/${encodeURIComponent(item.latest_scan_id)}/compare" target="_blank" rel="noopener">Diff JSON</a>` : ''}

@@ -43,6 +43,8 @@ class WorkerMonitoringTests(unittest.TestCase):
         ) as mark_sent, patch.object(
             worker, "send_email", return_value=True
         ) as send_email, patch.object(
+            worker, "ownership_verified", return_value=True
+        ), patch.object(
             worker.subscription_store, "enabled", True
         ), patch.object(
             worker, "log_event"
@@ -134,6 +136,8 @@ class WorkerMonitoringTests(unittest.TestCase):
             worker.subscription_store, "mark_sent"
         ) as mark_sent, patch.object(
             worker.subscription_store, "should_send_report", return_value=True
+        ), patch.object(
+            worker, "ownership_verified", return_value=True
         ), patch.object(
             worker.subscription_store, "mark_report_sent"
         ) as mark_report_sent, patch.dict(
@@ -288,6 +292,8 @@ class WorkerMonitoringTests(unittest.TestCase):
         with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
             worker.subscription_store, "should_send_alert", return_value=True
         ), patch.object(
+            worker, "ownership_verified", return_value=True
+        ), patch.object(
             worker.subscription_store, "mark_alert_sent"
         ) as mark_alert_sent, patch.dict(
             os.environ,
@@ -321,6 +327,8 @@ class WorkerMonitoringTests(unittest.TestCase):
         with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
             worker.subscription_store, "should_send_alert", return_value=False
         ), patch.object(
+            worker, "ownership_verified", return_value=True
+        ), patch.object(
             worker.subscription_store, "mark_alert_sent"
         ) as mark_alert_sent, patch.dict(
             os.environ,
@@ -350,6 +358,8 @@ class WorkerMonitoringTests(unittest.TestCase):
         report = {"grade": "B", "score": 83}
         with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
             worker.subscription_store, "should_send_alert", return_value=True
+        ), patch.object(
+            worker, "ownership_verified", return_value=True
         ), patch.object(
             worker.subscription_store, "mark_alert_sent"
         ) as mark_alert_sent, patch.dict(
@@ -382,6 +392,40 @@ class WorkerMonitoringTests(unittest.TestCase):
             os.environ,
             {"SMTP_URL": "smtps://example:465"},
             clear=False,
+        ):
+            worker.send_subscription_alert_report(job, events, report)
+        send_email.assert_not_called()
+
+    def test_send_subscription_report_support_requires_ownership_verification(self) -> None:
+        job = {
+            "id": "job-own-1",
+            "host": "example.ru",
+            "port": 443,
+            "subscription_id": 31,
+            "subscription_email": "admin@example.ru",
+            "subscription_plan": "support",
+        }
+        report = {"grade": "A", "score": 92, "summary": ["OK"], "findings": []}
+        with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
+            worker.subscription_store, "should_send_report", return_value=True
+        ), patch.object(
+            worker, "ownership_verified", return_value=False
+        ):
+            worker.send_subscription_report(job, report, None)
+        send_email.assert_not_called()
+
+    def test_send_subscription_alert_report_support_requires_ownership_verification(self) -> None:
+        job = {
+            "id": "job-own-2",
+            "host": "example.ru",
+            "subscription_id": 32,
+            "subscription_email": "admin@example.ru",
+            "subscription_plan": "support",
+        }
+        events = [MonitoringEvent(event_type="scan_failed", severity="critical", title="scan failed")]
+        report = {"grade": "C", "score": 60}
+        with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
+            worker, "ownership_verified", return_value=False
         ):
             worker.send_subscription_alert_report(job, events, report)
         send_email.assert_not_called()

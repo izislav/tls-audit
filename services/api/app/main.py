@@ -1179,6 +1179,9 @@ def subscription_item_to_dict(item, domain) -> Dict[str, object]:
         latest_events = monitoring_store.list_events(domain.id, limit=1)
         if latest_events:
             latest_scan_id = latest_events[0].get("scan_id")
+    ownership_ok = item.ownership_verified_at is not None
+    pro_delivery_ready = item.plan != "support" or ownership_ok
+    delivery_status = "active" if pro_delivery_ready else "paused_ownership"
     return {
         "id": item.id,
         "host": item.host,
@@ -1189,6 +1192,8 @@ def subscription_item_to_dict(item, domain) -> Dict[str, object]:
         "ownership_method": item.ownership_method,
         "ownership_verified": item.ownership_verified_at is not None,
         "ownership_verified_at": iso_or_none(item.ownership_verified_at),
+        "pro_delivery_ready": pro_delivery_ready,
+        "delivery_status": delivery_status,
         "last_sent_at": iso_or_none(item.last_sent_at),
         "next_run_at": iso_or_none(item.next_run_at),
         "created_at": iso_or_none(item.created_at),

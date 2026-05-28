@@ -209,6 +209,15 @@ def send_subscription_report(
     plan = str(job.get("subscription_plan") or "free").strip().lower()
     if not subscription_id or not email:
         return
+    if plan == "support" and not ownership_verified(subscription_id):
+        log_event(
+            logger,
+            "subscription_report_email_skipped",
+            subscription_id=subscription_id,
+            email=email,
+            reason="ownership_not_verified",
+        )
+        return
     job_id = str(job.get("id") or "")
     if not job_id:
         return
@@ -390,6 +399,8 @@ def send_subscription_alert_report(
     subscription_id = optional_int(job.get("subscription_id"))
     email = str(job.get("subscription_email") or "").strip()
     if not subscription_id or not email:
+        return
+    if not ownership_verified(subscription_id):
         return
     smtp_url = os.getenv("SMTP_URL", "").strip()
     if not smtp_url:
@@ -632,6 +643,16 @@ def format_pro_digest(diff: Optional[MonitoringDiff]) -> str:
     if resolved:
         lines.append("- Ушли: " + "; ".join(item.title for item in resolved[:3] if item.title))
     return "\n".join(lines) + "\n"
+
+
+def ownership_verified(subscription_id: int) -> bool:
+    try:
+        item = subscription_store.get_by_id(int(subscription_id))
+    except Exception:
+        return False
+    if not item:
+        return False
+    return getattr(item, "ownership_verified_at", None) is not None
 
 
 def run_dev_file_worker() -> None:
