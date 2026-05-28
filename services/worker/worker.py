@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
@@ -42,6 +43,7 @@ target_scan_guard = TargetScanGuard(
 )
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("tls_audit.worker")
+SCAN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 
 
 def handle_job(job: Dict[str, object]) -> Dict[str, object]:
@@ -276,9 +278,18 @@ def send_subscription_report(
             email=email,
             public_base_url=(public_base_url or "https://tlsaudit.ru"),
         )
+        has_public_report_link = bool(SCAN_ID_RE.match(job_id))
         diff_json_url = f"{public_base_url or 'https://tlsaudit.ru'}/api/report/{job_id}/compare"
         diff_ui_url = f"{public_base_url or 'https://tlsaudit.ru'}/scan?job={job_id}#compare-section"
         digest_block = format_pro_digest(monitoring_diff)
+        links_block = (
+            "\nСсылки:\n"
+            + (f"- Scan: {report_link}\n" if has_public_report_link else "")
+            + (f"- Diff view: {diff_ui_url}\n" if has_public_report_link else "")
+            + (f"- Diff JSON: {diff_json_url}\n" if has_public_report_link else "")
+            + f"- Управление подпиской: {manage_url}\n"
+            + f"- Отключить подписку: {unsubscribe_url}\n"
+        )
         body = (
             "TLS Audit Pro — еженедельный отчёт\n"
             "==================================\n"
@@ -292,12 +303,7 @@ def send_subscription_report(
             + f"Ключевой вывод: {top}\n"
             + (f"\nГлавные замечания:\n{highlights}\n" if highlights else "\n")
             + evidence_block
-            + "\nСсылки:\n"
-            + f"- Scan: {report_link}\n"
-            + f"- Diff view: {diff_ui_url}\n"
-            + f"- Diff JSON: {diff_json_url}\n"
-            + f"- Управление подпиской: {manage_url}\n"
-            + f"- Отключить подписку: {unsubscribe_url}\n"
+            + links_block
         )
     else:
         body = (
@@ -750,20 +756,30 @@ def format_provenance_block(report: Dict[str, object]) -> str:
     sources = provenance.get("sources")
     if not isinstance(sources, list) or not sources:
         return ""
-    lines = ["", "Evidence:", "---------"]
+    labels = {
+        "basic_scanner": "Базовая TLS-проверка",
+        "dns_probe": "Проверка DNS",
+        "openssl": "Проверка OpenSSL",
+        "http_headers": "Проверка HTTP заголовков",
+        "testssl": "Глубокая TLS-проверка",
+    }
+    lines = ["", "Проверки источников данных:", "--------------------------"]
     for source in sources[:4]:
         if not isinstance(source, dict):
             continue
         source_id = str(source.get("id") or "source").strip()
+        source_label = labels.get(source_id, source_id)
         version = str(source.get("version") or "").strip()
-        status = str(source.get("status") or "unknown").strip()
+        status_raw = str(source.get("status") or "unknown").strip().lower()
+        status_ru = "ОК" if status_raw == "done" else ("Ошибка" if status_raw in {"error", "failed"} else "Требует проверки")
         scanned_at = str(source.get("scanned_at") or "").strip()
-        line = f"- {source_id}: {status}"
+        line = f"- {source_label}: {status_ru}"
         if version:
             line += f", version={version}"
         if scanned_at:
             line += f", scanned_at={scanned_at}"
         lines.append(line)
+    lines.append("- Итог: если везде «ОК», результаты отчёта считаются достоверными.")
     return "\n".join(lines) + "\n"
 
 
