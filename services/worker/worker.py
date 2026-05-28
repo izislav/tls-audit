@@ -286,36 +286,44 @@ def send_subscription_report(
             if cert_days_value is not None and cert_days_value >= 0
             else cert_status
         )
-        positive_checks = positive_checks_block(report)
         good_checks = good_checks_block(report)
-        status_line = "Статус безопасности: без новых рисков" if not critical_changes.strip() else "Статус безопасности: есть изменения, требуется внимание"
+        status_line = "Статус безопасности: всё стабильно" if not critical_changes.strip() else "Статус безопасности: есть изменения, требуется внимание"
         body = (
             "TLS Audit Pro — Security status digest\n"
-            "======================================\n"
-            f"Домен: {host}\n"
+            "\n"
+            f"{host}\n"
+            "\n────────────────────────────\n\n"
             + f"{status_line}\n"
-            + f"Оценка: {grade}\n"
-            + f"Сертификат истекает через: {cert_soft_status}\n"
-            + f"Критичных изменений: {critical_changes_status}\n"
-            + (f"Баллы: {score}/100\n" if score is not None else "")
-            + f"Порт: {port}\n"
-            + f"Сертификат: {cert_status}\n"
-            + f"Статус: {top}\n"
             + (
-                "\nМы не обнаружили:\n"
-                "- новых TLS-уязвимостей,\n"
-                "- проблем с сертификатом,\n"
-                "- ухудшения HTTPS-конфигурации.\n"
+                "\nЗа последнюю неделю мы не обнаружили:\n"
+                "• новых TLS-уязвимостей\n"
+                "• проблем с сертификатом\n"
+                "• ухудшения HTTPS-конфигурации\n\n"
                 if not critical_changes.strip()
                 else ""
             )
+            + f"Текущая оценка HTTPS: {grade}"
+            + (f" ({score}/100)\n" if score is not None else "\n")
+            + f"Сертификат действителен ещё {cert_soft_status}.\n"
             + (f"\nКритические изменения:\n{critical_changes}\n" if critical_changes else "")
-            + (f"\nЧто важно сейчас:\n{actions_now}\n" if actions_now else "")
-            + (f"\nЧто уже настроено правильно:\n{good_checks}\n" if good_checks else "")
-            + (f"\nПоложительные проверки:\n{positive_checks}\n" if positive_checks else "")
-            + "\nПолный отчёт:\n"
+            + (
+                "\n────────────────────────────\n\n"
+                f"Что можно улучшить\n\n{actions_now}\n"
+                if actions_now
+                else ""
+            )
+            + (
+                "\n────────────────────────────\n\n"
+                f"Что уже настроено правильно\n\n{good_checks}\n"
+                if good_checks
+                else ""
+            )
+            + "\n────────────────────────────\n\n"
+            + "Открыть подробный TLS-отчёт:\n"
             + (f"{report_link}\n" if has_public_report_link else f"{manage_url}\n")
-            + "\nНастройки мониторинга и управление подпиской:\n"
+            + "\n(рекомендации, конфиги и история изменений)\n"
+            + "\n────────────────────────────\n\n"
+            + "Настройки мониторинга и управление подпиской:\n"
             + f"{manage_url}\n"
         )
     else:
@@ -740,9 +748,8 @@ def top_actions_summary(report: Dict[str, object], limit: int = 2) -> str:
         )
     normalized.sort(key=lambda item: severity_rank.get(item["severity"], 9))
     lines: list[str] = []
-    for idx, item in enumerate(normalized[: max(1, int(limit))], start=1):
-        lines.append(f"{idx}. {human_finding_summary(item['title'])}")
-    lines.append("Подробные команды и конфиги — в полном отчёте.")
+    for item in normalized[: max(1, int(limit))]:
+        lines.append(f"• {human_finding_summary(item['title'])}")
     return "\n".join(lines)
 
 
