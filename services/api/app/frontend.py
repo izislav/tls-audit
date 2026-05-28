@@ -1571,12 +1571,14 @@ def render_frontend() -> str:
     .progress-track { height: 12px; border-radius: 999px; background: #e2e6df; overflow: hidden; }
     .progress-bar { height: 100%; width: 0%; background: linear-gradient(90deg, var(--teal), var(--blue)); transition: width .25s ease; }
     .progress-row { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; color: var(--muted); }
-    .grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+    .grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px; margin-top: 14px; align-items: start; }
     section {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 16px;
+      align-self: start;
+      height: fit-content;
       min-width: 0;
       max-width: 100%;
       overflow: hidden;
