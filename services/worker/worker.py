@@ -273,7 +273,7 @@ def send_subscription_report(
     actions_now = top_actions_summary(report, limit=2)
     subject = f"TLS Audit: Security status digest {host} — {grade}"
     if plan == "support":
-        manage_url, unsubscribe_url = subscription_links(
+        manage_url, _unsubscribe_url = subscription_links(
             subscription_id=subscription_id,
             email=email,
             public_base_url=(public_base_url or "https://tlsaudit.ru"),
@@ -287,10 +287,12 @@ def send_subscription_report(
             else cert_status
         )
         positive_checks = positive_checks_block(report)
+        status_line = "Статус безопасности: без новых рисков" if not critical_changes.strip() else "Статус безопасности: есть изменения, требуется внимание"
         body = (
             "TLS Audit Pro — Security status digest\n"
             "======================================\n"
             f"Домен: {host}\n"
+            + f"{status_line}\n"
             + f"Оценка: {grade}\n"
             + f"Сертификат истекает через: {cert_soft_status}\n"
             + f"Критичных изменений: {critical_changes_status}\n"
@@ -298,13 +300,21 @@ def send_subscription_report(
             + f"Порт: {port}\n"
             + f"Сертификат: {cert_status}\n"
             + f"Статус: {top}\n"
+            + (
+                "\nМы не обнаружили:\n"
+                "- новых TLS-уязвимостей,\n"
+                "- проблем с сертификатом,\n"
+                "- ухудшения HTTPS-конфигурации.\n"
+                if not critical_changes.strip()
+                else ""
+            )
             + (f"\nКритические изменения:\n{critical_changes}\n" if critical_changes else "")
             + (f"\nЧто важно сейчас:\n{actions_now}\n" if actions_now else "")
             + (f"\nПоложительные проверки:\n{positive_checks}\n" if positive_checks else "")
             + "\nПолный отчёт:\n"
             + (f"{report_link}\n" if has_public_report_link else f"{manage_url}\n")
-            + f"\nУправление подпиской: {manage_url}\n"
-            + f"Отключить подписку: {unsubscribe_url}\n"
+            + "\nНастройки мониторинга и управление подпиской:\n"
+            + f"{manage_url}\n"
         )
     else:
         body = (
