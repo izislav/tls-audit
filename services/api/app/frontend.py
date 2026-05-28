@@ -1614,6 +1614,18 @@ def render_frontend() -> str:
       min-width: 0;
       max-width: 100%;
     }
+    .recommendation-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .recommendation-list .recommendation {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      margin: 0;
+      background: #fff;
+    }
     .evidence-box {
       margin-top: 8px;
       padding: 10px 12px;
@@ -1805,6 +1817,7 @@ def render_frontend() -> str:
 	      form .domain-field { grid-column: auto; }
 	      .subscription-cta-row { grid-template-columns: 1fr; }
 	      .span-4, .span-5, .span-6, .span-7, .span-8 { grid-column: span 12; }
+	      .recommendation-list { grid-template-columns: 1fr; }
 	      .about-page { grid-template-columns: 1fr; }
 	      .about-intro { grid-column: auto; }
       .compare-strip { grid-template-columns: 1fr; }
@@ -2265,11 +2278,11 @@ def render_frontend() -> str:
             <h2>Влияет на безопасность</h2>
             ${renderFindings(findingBuckets.security, 'Серьёзных рисков безопасности не найдено.')}
           </section>
-          <section class="span-7">
+          <section class="span-12">
             <h2>Улучшение конфигурации</h2>
             ${renderFindings(findingBuckets.hardening, 'Обязательных улучшений конфигурации нет.')}
           </section>
-          <section class="span-5">
+          <section class="span-12">
             <h2>Готовые рекомендации</h2>
             ${renderRecommendations(recommendations)}
           </section>
@@ -2654,7 +2667,7 @@ def render_frontend() -> str:
       if (!recommendations.length) {
         return '<p class="muted">Рекомендации появятся после проверки.</p>';
       }
-      return '<div class="list">' + recommendations.map((item) => `
+      return '<div class="recommendation-list">' + recommendations.map((item) => `
         <article class="finding">
           <h3>${escapeHtml(item.title || item.code)}</h3>
           <p>${escapeHtml(item.risk || '')}</p>
