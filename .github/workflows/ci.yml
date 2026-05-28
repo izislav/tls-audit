@@ -31,3 +31,7 @@ jobs:
       - name: Trust-zone regression checks
         run: |
           python -m unittest tests.test_monitor_admin_api tests.test_monitoring_access
+
+      - name: UI smoke checks
+        run: |
+          python -m unittest tests.test_ui_smoke
