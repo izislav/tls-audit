@@ -97,7 +97,7 @@ class WorkerMonitoringTests(unittest.TestCase):
         archive_store.save_report.assert_called()
         self.assertTrue(send_email.called)
         bodies = [call.kwargs.get("body", "") for call in send_email.call_args_list]
-        self.assertTrue(any("Главные замечания" in body for body in bodies))
+        self.assertTrue(any("Что делать сейчас" in body for body in bodies))
         mark_sent.assert_called_once_with(22)
 
     def test_send_subscription_report_includes_diff_summary(self) -> None:
@@ -148,13 +148,12 @@ class WorkerMonitoringTests(unittest.TestCase):
         ):
             worker.send_subscription_report(job, report, diff)
         body = send_email.call_args.kwargs["body"]
-        self.assertIn("Изменения с прошлого скана: стало хуже", body)
-        self.assertIn("баллы: -9", body)
-        self.assertIn("новых проблем: 1, исправлено: 1", body)
-        self.assertIn("добавились: A", body)
-        self.assertIn("исправлены: B", body)
-        self.assertIn("Проверки источников данных:", body)
-        self.assertIn("Базовая TLS-проверка: ОК", body)
+        self.assertIn("Security status digest", body)
+        self.assertIn("Критические изменения:", body)
+        self.assertIn("Оценка стала ниже", body)
+        self.assertIn("Добавлены важные риски: A", body)
+        self.assertIn("Исправлены важные риски: B", body)
+        self.assertIn("Полный отчёт:", body)
         mark_sent.assert_called_once_with(7)
         mark_report_sent.assert_called_once_with(7, "job-1")
 

@@ -269,43 +269,33 @@ def send_subscription_report(
     cert_status = format_certificate_status(cert_days, cert_not_after)
     summary = report.get("summary") or []
     top = summary[0] if isinstance(summary, list) and summary else "Отчёт сформирован."
-    highlights = top_findings(report, limit=3)
     actions_now = top_actions_block(report, limit=3)
-    subject = f"TLS Audit: еженедельный отчёт {host} — {grade}"
+    subject = f"TLS Audit: Security status digest {host} — {grade}"
     if plan == "support":
-        evidence_block = format_provenance_block(report)
         manage_url, unsubscribe_url = subscription_links(
             subscription_id=subscription_id,
             email=email,
             public_base_url=(public_base_url or "https://tlsaudit.ru"),
         )
         has_public_report_link = bool(SCAN_ID_RE.match(job_id))
-        diff_json_url = f"{public_base_url or 'https://tlsaudit.ru'}/api/report/{job_id}/compare"
-        diff_ui_url = f"{public_base_url or 'https://tlsaudit.ru'}/scan?job={job_id}#compare-section"
-        digest_block = format_pro_digest(monitoring_diff)
-        links_block = (
-            "\nСсылки:\n"
-            + (f"- Scan: {report_link}\n" if has_public_report_link else "")
-            + (f"- Diff view: {diff_ui_url}\n" if has_public_report_link else "")
-            + (f"- Diff JSON: {diff_json_url}\n" if has_public_report_link else "")
-            + f"- Управление подпиской: {manage_url}\n"
-            + f"- Отключить подписку: {unsubscribe_url}\n"
-        )
+        critical_changes = format_critical_changes(monitoring_diff)
+        positive_checks = positive_checks_block(report)
         body = (
-            "TLS Audit Pro — еженедельный отчёт\n"
-            "==================================\n"
+            "TLS Audit Pro — Security status digest\n"
+            "======================================\n"
             f"Домен: {host}\n"
             f"Порт: {port}\n"
             f"Оценка: {grade}"
             + (f" ({score}/100)\n" if score is not None else "\n")
             + f"Сертификат: {cert_status}\n"
-            + format_diff_block(monitoring_diff, detailed=True)
-            + digest_block
-            + f"Ключевой вывод: {top}\n"
+            + f"Статус: {top}\n"
+            + (f"\nКритические изменения:\n{critical_changes}\n" if critical_changes else "")
             + (f"\nЧто делать сейчас:\n{actions_now}\n" if actions_now else "")
-            + (f"\nГлавные замечания:\n{highlights}\n" if highlights else "\n")
-            + evidence_block
-            + links_block
+            + (f"\nПоложительные проверки:\n{positive_checks}\n" if positive_checks else "")
+            + "\nПолный отчёт:\n"
+            + (f"{report_link}\n" if has_public_report_link else f"{manage_url}\n")
+            + f"\nУправление подпиской: {manage_url}\n"
+            + f"Отключить подписку: {unsubscribe_url}\n"
         )
     else:
         body = (
@@ -756,6 +746,50 @@ def extract_recommendation(finding: Dict[str, object]) -> str:
             if isinstance(value, str) and value.strip():
                 return value.strip()
     return ""
+
+
+def format_critical_changes(diff: Optional[MonitoringDiff]) -> str:
+    if diff is None:
+        return ""
+    lines: list[str] = []
+    added = [item.title for item in (diff.added_findings or []) if str(item.severity).lower() in {"critical", "high"}]
+    resolved = [
+        item.title for item in (diff.resolved_findings or []) if str(item.severity).lower() in {"critical", "high"}
+    ]
+    if diff.grade_degraded:
+        lines.append("- Оценка стала ниже относительно прошлого скана.")
+    if added:
+        uniq_added = list(dict.fromkeys(title for title in added if title))
+        lines.append(f"- Добавлены важные риски: {', '.join(uniq_added[:3])}.")
+    if resolved:
+        uniq_resolved = list(dict.fromkeys(title for title in resolved if title))
+        lines.append(f"- Исправлены важные риски: {', '.join(uniq_resolved[:3])}.")
+    return "\n".join(lines)
+
+
+def positive_checks_block(report: Dict[str, object]) -> str:
+    lines: list[str] = []
+    protocols = report.get("protocols")
+    if isinstance(protocols, dict):
+        enabled = protocols.get("enabled")
+        if isinstance(enabled, list):
+            enabled_norm = [str(item).strip() for item in enabled if str(item).strip()]
+            if enabled_norm and all(proto not in {"SSLv2", "SSLv3", "TLS 1.0", "TLS 1.1"} for proto in enabled_norm):
+                lines.append(f"- Устаревшие протоколы SSLv2/SSLv3/TLS 1.0/1.1 не обнаружены ({', '.join(enabled_norm)}).")
+    cert = report.get("certificate")
+    if isinstance(cert, dict):
+        days = optional_int(cert.get("expires_in_days"))
+        if days is not None and days > 30:
+            lines.append(f"- Сертификат действителен, запас до окончания: {days} дней.")
+    findings = report.get("findings")
+    if isinstance(findings, list):
+        has_critical = any(
+            isinstance(item, dict) and str(item.get("severity") or "").strip().lower() == "critical"
+            for item in findings
+        )
+        if not has_critical:
+            lines.append("- Критических уязвимостей в текущем скане не найдено.")
+    return "\n".join(lines[:3])
 
 
 def format_diff_block(diff: Optional[MonitoringDiff], detailed: bool = False) -> str:
