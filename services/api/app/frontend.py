@@ -2667,9 +2667,18 @@ def render_frontend() -> str:
       if (!recommendations.length) {
         return '<p class="muted">Рекомендации появятся после проверки.</p>';
       }
-      return '<div class="recommendation-list">' + recommendations.map((item) => `
+      const levelOrder = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+      const normalized = recommendations
+        .map((item) => ({ ...item, level: String(item.severity || item.priority || 'medium').toLowerCase() }))
+        .sort((a, b) => (levelOrder[a.level] ?? 9) - (levelOrder[b.level] ?? 9));
+      const top = normalized.slice(0, 3);
+      const rest = normalized.slice(3);
+      const renderCard = (item) => `
         <article class="finding">
-          <h3>${escapeHtml(item.title || item.code)}</h3>
+          <div class="finding-head">
+            <h3>${escapeHtml(item.title || item.code)}</h3>
+            <span class="severity">${escapeHtml((item.level || 'info').toUpperCase())}</span>
+          </div>
           <p>${escapeHtml(item.risk || '')}</p>
           <div class="recommendation">
             <p><strong>Исправление:</strong> ${escapeHtml(item.fix || '')}</p>
@@ -2678,7 +2687,16 @@ def render_frontend() -> str:
             ${item.iis ? `<p class="muted" style="margin-top:8px">IIS: ${escapeHtml(item.iis)}</p>` : ''}
           </div>
         </article>
-      `).join('') + '</div>';
+      `;
+      const topHtml = '<div class="recommendation-list">' + top.map(renderCard).join('') + '</div>';
+      if (!rest.length) return topHtml;
+      const restHtml = '<div class="recommendation-list">' + rest.map(renderCard).join('') + '</div>';
+      return topHtml + `
+        <details style="margin-top:10px">
+          <summary>Показать ещё (${rest.length})</summary>
+          <div style="margin-top:10px">${restHtml}</div>
+        </details>
+      `;
     }
 
     function renderProtocols(items) {
