@@ -28,6 +28,7 @@ TARGET_COOLDOWN_SECONDS = int(os.getenv("TARGET_COOLDOWN_SECONDS", "30"))
 ACTIVE_SCAN_TTL_SECONDS = int(os.getenv("ACTIVE_SCAN_TTL_SECONDS", "900"))
 ALERT_COOLDOWN_SECONDS = int(os.getenv("ALERT_COOLDOWN_SECONDS", "86400"))
 REPORT_COOLDOWN_SECONDS = int(os.getenv("REPORT_COOLDOWN_SECONDS", "43200"))
+ALERT_BATCH_COOLDOWN_SECONDS = int(os.getenv("ALERT_BATCH_COOLDOWN_SECONDS", "1800"))
 job_store = create_job_store(REDIS_URL)
 archive_store = create_archive_store(DATABASE_URL)
 monitoring_store = create_monitoring_store(DATABASE_URL)
@@ -414,6 +415,21 @@ def send_subscription_alert_report(
         return
     if not ownership_verified(subscription_id):
         return
+    # Global anti-storm guard for alert batches on the same subscription.
+    if not subscription_store.should_send_alert(
+        subscription_id,
+        "alert_batch",
+        ALERT_BATCH_COOLDOWN_SECONDS,
+    ):
+        log_event(
+            logger,
+            "subscription_alert_email_skipped",
+            subscription_id=subscription_id,
+            email=email,
+            reason="alert_batch_cooldown_active",
+            cooldown_seconds=ALERT_BATCH_COOLDOWN_SECONDS,
+        )
+        return
     smtp_url = os.getenv("SMTP_URL", "").strip()
     if not smtp_url:
         return
@@ -459,6 +475,10 @@ def send_subscription_alert_report(
             body=body,
         )
         if sent:
+            subscription_store.mark_alert_sent(
+                subscription_id,
+                "alert_batch",
+            )
             for alert_key, _event in deliverable_pairs:
                 subscription_store.mark_alert_sent(
                     subscription_id,

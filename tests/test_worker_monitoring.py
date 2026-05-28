@@ -338,7 +338,7 @@ class WorkerMonitoringTests(unittest.TestCase):
         self.assertIn("Сертификат скоро истечет", body)
         self.assertIn("Сертификат истек", body)
         self.assertIn("C (70/100)", body)
-        self.assertEqual(mark_alert_sent.call_count, 2)
+        self.assertEqual(mark_alert_sent.call_count, 3)
 
     def test_send_subscription_alert_report_respects_daily_cooldown(self) -> None:
         job = {
@@ -359,6 +359,38 @@ class WorkerMonitoringTests(unittest.TestCase):
         report = {"grade": "B", "score": 80}
         with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
             worker.subscription_store, "should_send_alert", return_value=False
+        ), patch.object(
+            worker, "ownership_verified", return_value=True
+        ), patch.object(
+            worker.subscription_store, "mark_alert_sent"
+        ) as mark_alert_sent, patch.dict(
+            os.environ,
+            {"SMTP_URL": "smtps://example:465"},
+            clear=False,
+        ):
+            worker.send_subscription_alert_report(job, events, report)
+        send_email.assert_not_called()
+        mark_alert_sent.assert_not_called()
+
+    def test_send_subscription_alert_report_respects_batch_cooldown(self) -> None:
+        job = {
+            "id": "job-15",
+            "host": "alert.example.ru",
+            "subscription_id": 21,
+            "subscription_email": "admin@example.ru",
+            "subscription_plan": "support",
+        }
+        events = [
+            MonitoringEvent(
+                event_type="grade_degraded",
+                severity="high",
+                title="Оценка ухудшилась",
+                detail="-10",
+            )
+        ]
+        report = {"grade": "C", "score": 72}
+        with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
+            worker.subscription_store, "should_send_alert", side_effect=[False]
         ), patch.object(
             worker, "ownership_verified", return_value=True
         ), patch.object(
@@ -403,7 +435,7 @@ class WorkerMonitoringTests(unittest.TestCase):
             worker.send_subscription_alert_report(job, events, report)
         body = send_email.call_args.kwargs["body"]
         self.assertIn("Оценка TLS ухудшилась", body)
-        mark_alert_sent.assert_called_once_with(12, "grade_degraded")
+        self.assertEqual(mark_alert_sent.call_count, 2)
 
     def test_send_subscription_alert_report_ignores_unimportant_events(self) -> None:
         job = {
