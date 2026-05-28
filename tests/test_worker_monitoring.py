@@ -154,7 +154,7 @@ class WorkerMonitoringTests(unittest.TestCase):
         self.assertIn("добавились: A", body)
         self.assertIn("исправлены: B", body)
         self.assertIn("Проверки источников данных:", body)
-        self.assertIn("Базовая TLS-проверка: ОК, version=0.2.1", body)
+        self.assertIn("Базовая TLS-проверка: ОК", body)
         mark_sent.assert_called_once_with(7)
         mark_report_sent.assert_called_once_with(7, "job-1")
 

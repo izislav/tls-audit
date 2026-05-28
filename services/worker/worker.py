@@ -270,6 +270,7 @@ def send_subscription_report(
     summary = report.get("summary") or []
     top = summary[0] if isinstance(summary, list) and summary else "Отчёт сформирован."
     highlights = top_findings(report, limit=3)
+    actions_now = top_actions_block(report, limit=3)
     subject = f"TLS Audit: еженедельный отчёт {host} — {grade}"
     if plan == "support":
         evidence_block = format_provenance_block(report)
@@ -301,6 +302,7 @@ def send_subscription_report(
             + format_diff_block(monitoring_diff, detailed=True)
             + digest_block
             + f"Ключевой вывод: {top}\n"
+            + (f"\nЧто делать сейчас:\n{actions_now}\n" if actions_now else "")
             + (f"\nГлавные замечания:\n{highlights}\n" if highlights else "\n")
             + evidence_block
             + links_block
@@ -701,6 +703,61 @@ def top_findings(report: Dict[str, object], limit: int = 3) -> str:
     return "\n".join(lines)
 
 
+def top_actions_block(report: Dict[str, object], limit: int = 3) -> str:
+    items = report.get("findings") or []
+    if not isinstance(items, list):
+        return ""
+    severity_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    risk_map = {
+        "critical": "высокий риск компрометации или отказа",
+        "high": "существенный риск снижения безопасности",
+        "medium": "умеренный риск, нужна плановая правка",
+        "low": "низкий риск, улучшение конфигурации",
+        "info": "информационное замечание",
+    }
+    normalized: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        severity = str(item.get("severity") or "info").strip().lower()
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        key = (severity, title)
+        if key in seen:
+            continue
+        seen.add(key)
+        recommendation = extract_recommendation(item)
+        normalized.append(
+            {
+                "severity": severity,
+                "title": title,
+                "risk": risk_map.get(severity, "требует проверки"),
+                "fix": recommendation or "См. блок рекомендаций в полном отчёте.",
+            }
+        )
+    normalized.sort(key=lambda item: severity_rank.get(item["severity"], 9))
+    lines: list[str] = []
+    for idx, item in enumerate(normalized[: max(1, int(limit))], start=1):
+        lines.append(
+            f"{idx}. {item['title']} — риск: {item['risk']}. Правка: {item['fix']}"
+        )
+    return "\n".join(lines)
+
+
+def extract_recommendation(finding: Dict[str, object]) -> str:
+    recommendation = finding.get("recommendation")
+    if isinstance(recommendation, str):
+        return recommendation.strip()
+    if isinstance(recommendation, dict):
+        for key in ("nginx", "apache", "iis", "text"):
+            value = recommendation.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
+
+
 def format_diff_block(diff: Optional[MonitoringDiff], detailed: bool = False) -> str:
     if diff is None:
         return ""
@@ -769,15 +826,9 @@ def format_provenance_block(report: Dict[str, object]) -> str:
             continue
         source_id = str(source.get("id") or "source").strip()
         source_label = labels.get(source_id, source_id)
-        version = str(source.get("version") or "").strip()
         status_raw = str(source.get("status") or "unknown").strip().lower()
         status_ru = "ОК" if status_raw == "done" else ("Ошибка" if status_raw in {"error", "failed"} else "Требует проверки")
-        scanned_at = str(source.get("scanned_at") or "").strip()
         line = f"- {source_label}: {status_ru}"
-        if version:
-            line += f", version={version}"
-        if scanned_at:
-            line += f", scanned_at={scanned_at}"
         lines.append(line)
     lines.append("- Итог: если везде «ОК», результаты отчёта считаются достоверными.")
     return "\n".join(lines) + "\n"
