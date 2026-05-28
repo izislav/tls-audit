@@ -729,9 +729,36 @@ def top_actions_summary(report: Dict[str, object], limit: int = 2) -> str:
     normalized.sort(key=lambda item: severity_rank.get(item["severity"], 9))
     lines: list[str] = []
     for idx, item in enumerate(normalized[: max(1, int(limit))], start=1):
-        lines.append(f"{idx}. {item['title']}")
+        lines.append(f"{idx}. {human_finding_summary(item['title'])}")
     lines.append("Подробные команды и конфиги — в полном отчёте.")
     return "\n".join(lines)
+
+
+def human_finding_summary(title: str) -> str:
+    raw = str(title or "").strip()
+    t = raw.lower()
+    if "cbc cipher" in t:
+        return (
+            "Сервер поддерживает устаревшие cipher suites. "
+            "Это не критично, но остаются старые алгоритмы для совместимости. "
+            "После отключения конфигурация станет современнее, а оценка может вырасти."
+        )
+    if "нет заголовка hsts" in t or "hsts" in t:
+        return (
+            "HSTS не включён. Это не критично, но защита от перехода на HTTP слабее. "
+            "После корректного включения HSTS оценка обычно улучшается."
+        )
+    if "breach" in t:
+        return (
+            "Обнаружен риск BREACH при HTTP-сжатии. "
+            "Это контекстный риск приложения, его лучше закрыть для чувствительных страниц."
+        )
+    if "tls 1.0" in t or "tls 1.1" in t:
+        return (
+            "Сервер разрешает устаревшие версии TLS. "
+            "Рекомендуется оставить только TLS 1.2/1.3 для современной и более безопасной конфигурации."
+        )
+    return raw
 
 
 def format_critical_changes(diff: Optional[MonitoringDiff]) -> str:
