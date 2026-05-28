@@ -139,13 +139,14 @@ class InMemorySubscriptionStore(NullSubscriptionStore):
                 and item.host == host
                 and item.port == port
             ):
+                reuse_verified = normalize_plan(plan) == "support" and item.ownership_verified_at is not None
                 item.enabled = True
                 item.confirmed = False
                 item.plan = normalize_plan(plan)
                 item.token = uuid4().hex
-                item.ownership_method = ""
+                item.ownership_method = "trusted_reuse" if reuse_verified else ""
                 item.ownership_token = ""
-                item.ownership_verified_at = None
+                item.ownership_verified_at = item.ownership_verified_at if reuse_verified else None
                 item.interval_seconds = int(interval_seconds)
                 item.next_run_at = now + timedelta(seconds=item.interval_seconds)
                 item.updated_at = now
@@ -328,9 +329,17 @@ class PostgresSubscriptionStore(NullSubscriptionStore):
                     enabled = true,
                     confirmed = false,
                     plan = EXCLUDED.plan,
-                    ownership_method = '',
+                    ownership_method = CASE
+                        WHEN EXCLUDED.plan = 'support' AND monitor_subscriptions.ownership_verified_at IS NOT NULL
+                        THEN 'trusted_reuse'
+                        ELSE ''
+                    END,
                     ownership_token = '',
-                    ownership_verified_at = NULL,
+                    ownership_verified_at = CASE
+                        WHEN EXCLUDED.plan = 'support' AND monitor_subscriptions.ownership_verified_at IS NOT NULL
+                        THEN monitor_subscriptions.ownership_verified_at
+                        ELSE NULL
+                    END,
                     interval_seconds = EXCLUDED.interval_seconds,
                     next_run_at = EXCLUDED.next_run_at
                 RETURNING *

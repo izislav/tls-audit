@@ -871,6 +871,7 @@ def render_static_page(page_key: str) -> str:
               };
               const ownershipText = (item) => {
                 if (item.plan !== 'pro' && item.plan !== 'support') return 'Не требуется';
+                if (item.ownership_reused) return 'Подтверждено ранее';
                 if (item.ownership_verified) return 'Подтверждено';
                 return 'Не подтверждено (Pro paused)';
               };

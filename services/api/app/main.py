@@ -806,9 +806,14 @@ def create_monitor_subscription(payload: SubscribeRequest) -> Dict[str, object]:
         plan = "support"
     if plan not in {"free", "support"}:
         raise HTTPException(status_code=400, detail="Неизвестный план подписки.")
+    account = billing_store.get_by_email(email)
     existing = [item for item in subscription_store.find_by_email(email) if item.enabled]
     same_target_exists = any(item.host == target.host and item.port == target.port for item in existing)
-    plan_limit = 1 if plan == "free" else 10
+    if plan == "support":
+        billed_limit = int(account.domain_limit) if account and account.plan == "support" and account.status == "active" else 10
+        plan_limit = max(1, min(10, billed_limit))
+    else:
+        plan_limit = 1
     if len(existing) >= plan_limit and not same_target_exists:
         detail = (
             "Для бесплатного режима доступен мониторинг только одного домена на email."
@@ -841,6 +846,7 @@ def create_monitor_subscription(payload: SubscribeRequest) -> Dict[str, object]:
         "port": sub.port,
         "email": sub.email,
         "plan": sub.plan,
+        "ownership_reused": bool(sub.plan == "support" and sub.ownership_verified_at is not None),
         "confirm_url": confirm_url,
         "unsubscribe_url": unsubscribe_url,
         "confirmation_sent": confirmation_sent,
@@ -1097,6 +1103,16 @@ def verify_subscription_ownership(subscription_id: int, token: str) -> Dict[str,
             "ownership_verified": True,
             "detail": "Для бесплатного плана отдельная ownership-проверка не требуется.",
         }
+    if sub.ownership_verified_at is not None:
+        return {
+            "subscription_id": sub.id,
+            "plan": "pro",
+            "ownership_required": True,
+            "ownership_verified": True,
+            "ownership_verified_at": iso_or_none(sub.ownership_verified_at),
+            "method": sub.ownership_method or "trusted_reuse",
+            "detail": "Владение доменом уже подтверждено ранее для этого email.",
+        }
     if not sub.ownership_method or not sub.ownership_token:
         raise HTTPException(
             status_code=409,
@@ -1192,6 +1208,7 @@ def subscription_item_to_dict(item, domain) -> Dict[str, object]:
         "ownership_method": item.ownership_method,
         "ownership_verified": item.ownership_verified_at is not None,
         "ownership_verified_at": iso_or_none(item.ownership_verified_at),
+        "ownership_reused": bool(item.ownership_method == "trusted_reuse"),
         "pro_delivery_ready": pro_delivery_ready,
         "delivery_status": delivery_status,
         "last_sent_at": iso_or_none(item.last_sent_at),

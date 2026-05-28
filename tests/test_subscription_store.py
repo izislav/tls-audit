@@ -64,6 +64,17 @@ class SubscriptionStoreTests(unittest.TestCase):
         due_after_ids = {item.id for item in due_after}
         self.assertIn(support_sub.id, due_after_ids)
 
+    def test_support_reuses_verified_ownership_for_same_domain_and_email(self) -> None:
+        store = InMemorySubscriptionStore()
+        first = store.upsert_pending("one.example", 443, "user@example.ru", plan="support")
+        first.confirmed = True
+        store.mark_ownership_verified(first.id)
+
+        second = store.upsert_pending("one.example", 443, "user@example.ru", plan="support")
+        self.assertEqual(first.id, second.id)
+        self.assertIsNotNone(second.ownership_verified_at)
+        self.assertEqual(second.ownership_method, "trusted_reuse")
+
 
 if __name__ == "__main__":
     unittest.main()
