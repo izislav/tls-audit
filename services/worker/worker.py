@@ -267,6 +267,7 @@ def send_subscription_report(
     cert_days = cert.get("expires_in_days")
     cert_not_after = cert.get("not_after")
     cert_status = format_certificate_status(cert_days, cert_not_after)
+    cert_days_value = optional_int(cert_days)
     summary = report.get("summary") or []
     top = summary[0] if isinstance(summary, list) and summary else "Отчёт сформирован."
     actions_now = top_actions_block(report, limit=3)
@@ -279,14 +280,22 @@ def send_subscription_report(
         )
         has_public_report_link = bool(SCAN_ID_RE.match(job_id))
         critical_changes = format_critical_changes(monitoring_diff)
+        critical_changes_status = "нет" if not critical_changes.strip() else "есть"
+        cert_soft_status = (
+            f"{cert_days_value} дней"
+            if cert_days_value is not None and cert_days_value >= 0
+            else cert_status
+        )
         positive_checks = positive_checks_block(report)
         body = (
             "TLS Audit Pro — Security status digest\n"
             "======================================\n"
             f"Домен: {host}\n"
-            f"Порт: {port}\n"
-            f"Оценка: {grade}"
-            + (f" ({score}/100)\n" if score is not None else "\n")
+            + f"Оценка: {grade}\n"
+            + f"Сертификат истекает через: {cert_soft_status}\n"
+            + f"Критичных изменений: {critical_changes_status}\n"
+            + (f"Баллы: {score}/100\n" if score is not None else "")
+            + f"Порт: {port}\n"
             + f"Сертификат: {cert_status}\n"
             + f"Статус: {top}\n"
             + (f"\nКритические изменения:\n{critical_changes}\n" if critical_changes else "")
