@@ -303,7 +303,7 @@ def send_subscription_report(
                 else ""
             )
             + f"Текущая оценка HTTPS: {grade}"
-            + (f" ({score}/100)\n" if score is not None else "\n")
+            + "\n"
             + f"Сертификат действителен ещё {cert_soft_status}.\n"
             + (f"\nКритические изменения:\n{critical_changes}\n" if critical_changes else "")
             + (
