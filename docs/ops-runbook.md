@@ -7,7 +7,7 @@
 1. Проверить локально:
    - `docker-compose ps`
    - `python3 -m unittest discover -s tests -p 'test_*.py'`
-   - `docker-compose run --rm --no-deps -e DATABASE_URL= -e REDIS_URL= -e PUBLIC_BASE_URL=https://tlsaudit.ru -e MONITORING_TOKEN_SECRET=test -v "$PWD:/app" api python -m unittest discover -q`
+   - `docker-compose run --rm --no-deps -e DATABASE_URL= -e REDIS_URL= -e PUBLIC_BASE_URL=https://tlsaudit.ru -e MONITORING_TOKEN_SECRET=test -v "$PWD:/app" api sh -lc "pip install -r requirements/test.txt && python -m unittest discover -q"`
 2. Зафиксировать состояние:
    - `git status`
    - `git log --oneline -n 5`

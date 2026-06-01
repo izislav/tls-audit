@@ -23,7 +23,7 @@ Main code issue found and fixed:
 
 Build/test issue found and fixed:
 
-- `fastapi.testclient` requires `httpx`, but `httpx` was not pinned in API dependencies. Added it so API/UI smoke tests run in container/CI.
+- `fastapi.testclient` requires `httpx`, but `httpx` was not pinned in test dependencies. Added a separate test requirements file so API/UI smoke tests run in container/CI without changing production runtime dependencies.
 
 Repo hygiene issue found and fixed:
 
@@ -158,7 +158,7 @@ Tests:
 
 Dependencies:
 
-- `requirements/api.txt`
+- `requirements/test.txt`
   - added `httpx==0.27.2` for FastAPI/Starlette TestClient.
 
 CI:
