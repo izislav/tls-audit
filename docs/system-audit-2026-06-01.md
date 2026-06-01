@@ -87,7 +87,15 @@ Production Git state:
 - branch: `main`;
 - deployed commit at audit time: `69bd9a2`;
 - current local/GitHub documentation baseline was newer;
-- production working tree contains old untracked macOS `._*` files and backup/env artifacts. They do not affect runtime, but should be cleaned during a controlled maintenance window.
+- after `.gitignore` update, production working tree noise is reduced to old untracked `monitoring.py`, `worker.py`, and `scripts/` artifacts. They do not affect runtime, but should be reviewed before deletion.
+
+Post-audit deployment:
+
+- backup created before deployment: `/opt/tls-audit/backups/tls-audit-20260601T062114Z.sql.gz`;
+- deployed commit after audit fixes: `08b94e7`;
+- schema reapplied successfully;
+- services rebuilt and restarted: `api`, `worker`, `scheduler`;
+- post-deploy smoke checks passed: `/`, `/health`, protected monitor API, localhost SSRF block.
 
 ## 4) Production Database Snapshot
 
@@ -182,12 +190,11 @@ Repo/Docker hygiene:
 
 ## 7) Remaining Risks
 
-1. Production is one code step behind current local/GitHub audit fixes until the new commit is deployed.
-2. Production working tree contains many untracked `._*` files from macOS copy operations. They are harmless but noisy.
-3. Pending/unconfirmed subscriptions remain in DB. This is not a runtime issue, but cleanup policy is needed.
-4. Monitoring events are implemented, but production has not yet recorded real events; this should be verified with a controlled synthetic event test before calling alerting fully proven.
-5. `/var/log/journal` is not currently dangerous (`307 MB`), but should have an explicit retention cap.
-6. Payment/billing is still not connected; Pro currently works as functional/free support mode.
+1. Production working tree still contains old untracked `monitoring.py`, `worker.py`, and `scripts/` artifacts. They are not part of the current runtime image, but should be reviewed before deletion.
+2. Pending/unconfirmed subscriptions remain in DB. This is not a runtime issue, but cleanup policy is needed.
+3. Monitoring events are implemented, but production has not yet recorded real events; this should be verified with a controlled synthetic event test before calling alerting fully proven.
+4. `/var/log/journal` is not currently dangerous (`307 MB`), but should have an explicit retention cap.
+5. Payment/billing is still not connected; Pro currently works as functional/free support mode.
 
 ## 8) Development Plan From Current State
 
