@@ -7,6 +7,7 @@
 1. Проверить локально:
    - `docker-compose ps`
    - `python3 -m unittest discover -s tests -p 'test_*.py'`
+   - `docker-compose run --rm --no-deps -e DATABASE_URL= -e REDIS_URL= -e PUBLIC_BASE_URL=https://tlsaudit.ru -e MONITORING_TOKEN_SECRET=test -v "$PWD:/app" api python -m unittest discover -q`
 2. Зафиксировать состояние:
    - `git status`
    - `git log --oneline -n 5`
@@ -79,6 +80,8 @@
 - размер БД и скорость роста;
 - размер каталога `backups`;
 - docker image/cache.
+- untracked macOS `._*` файлы на VPS после ручной загрузки файлов;
+- stale pending subscriptions (`enabled=true`, `confirmed=false`) старше выбранного срока.
 
 ## 8. CI контроль
 

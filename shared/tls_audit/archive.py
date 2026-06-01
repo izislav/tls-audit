@@ -242,6 +242,11 @@ class PostgresArchiveStore:
                     DELETE FROM scans
                     WHERE status = 'done'
                       AND created_at < now() - (%s * interval '1 day')
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM monitoring_snapshots ms
+                          WHERE ms.scan_id = scans.id
+                      )
                     RETURNING id
                 )
                 SELECT count(*) AS count FROM deleted

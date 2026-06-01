@@ -1,4 +1,10 @@
+.git
+.gitignore
+.DS_Store
+._*
+**/._*
 __pycache__/
+**/__pycache__/
 *.py[cod]
 .Python
 .pycache_compile/
@@ -8,8 +14,6 @@ venv/
 .env.*
 backups/
 archives/
-logs/
-.DS_Store
-._*
-**/._*
 _vps_baseline_*/
+logs/
+*.log
