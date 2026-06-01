@@ -29,6 +29,10 @@ Repo hygiene issue found and fixed:
 
 - local VPS baseline archive and macOS AppleDouble files were entering Docker build context. Added `.dockerignore` and extended `.gitignore`.
 
+Deployment issue found and fixed:
+
+- VPS Docker build was sensitive to PyPI read timeouts. Dockerfiles now use explicit pip timeout/retry settings.
+
 ## 2) Local Code State
 
 Before audit changes:
@@ -173,6 +177,8 @@ Repo/Docker hygiene:
   - ignores `.env.*`, logs, macOS `._*`, and local VPS baseline artifacts.
 - `.dockerignore`
   - excludes Git metadata, local env/backups/logs/cache/archive artifacts from Docker build context.
+- `deploy/Dockerfile.api`, `deploy/Dockerfile.worker`
+  - use explicit pip retries and longer timeout for more reliable VPS builds.
 
 ## 7) Remaining Risks
 
