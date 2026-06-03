@@ -1727,7 +1727,7 @@ def render_frontend() -> str:
     .detail-list li { overflow-wrap: anywhere; }
     .compare-strip {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 10px;
       margin-bottom: 12px;
       grid-column: 1 / -1;
@@ -1943,62 +1943,35 @@ def render_frontend() -> str:
           <div class="compare-strip">
             <div class="compare-card">
               <div class="compare-label">Глубина</div>
-              <div class="compare-value">118 тестов</div>
-              <p class="muted" style="margin-top:6px">Сертификат, цепочка, TLS-версии, cipher suites, HSTS, OCSP и дополнительные проверки уязвимостей.</p>
+              <div class="compare-value">HTTPS-аудит</div>
+              <p class="muted" style="margin-top:6px">118 проверок: сертификат, TLS 1.2/1.3, HSTS, OCSP, cipher suites и распространённые проблемы безопасности.</p>
             </div>
             <div class="compare-card">
               <div class="compare-label">Рекомендации</div>
               <div class="compare-value">Что исправить</div>
-              <p class="muted" style="margin-top:6px">Не просто отчет, а понятные причины, риск и готовые правки для Nginx, Apache и других стеков.</p>
+              <p class="muted" style="margin-top:6px">Не просто список ошибок, а объяснение причин и готовые примеры настроек для Nginx, Apache и других серверов.</p>
             </div>
             <div class="compare-card">
               <div class="compare-label">Мониторинг</div>
-              <div class="compare-value">Weekly + alerts</div>
-              <p class="muted" style="margin-top:6px">Регулярные отчеты, события об ухудшении и сравнение с прошлым состоянием по домену.</p>
+              <div class="compare-value">Следим за изменениями</div>
+              <p class="muted" style="margin-top:6px">Еженедельные отчёты и уведомления, если сертификат истекает или конфигурация стала хуже.</p>
             </div>
             <div class="compare-card">
-              <div class="compare-label">Публично</div>
+              <div class="compare-label">Бесплатно</div>
               <div class="compare-value">Без регистрации</div>
-              <p class="muted" style="margin-top:6px">Сервис открыт для быстрой проверки своего домена и дает прямую ссылку на отчет.</p>
+              <p class="muted" style="margin-top:6px">Проверка домена доступна сразу. Для мониторинга нужен только email.</p>
+            </div>
+            <div class="compare-card">
+              <div class="compare-label">Какие проблемы решает TLS Audit</div>
+              <div class="compare-value">Когда нужен сервис</div>
+              <p class="muted" style="margin-top:6px">Сертификат скоро закончится; после изменений на сервере что-то сломалось; много доменов и сложно следить вручную; нужен быстрый ответ «всё нормально или нет».</p>
+            </div>
+            <div class="compare-card">
+              <div class="compare-label">Для кого</div>
+              <div class="compare-value">Подходит</div>
+              <p class="muted" style="margin-top:6px">Системным администраторам; DevOps и SRE; веб-студиям и агентствам; владельцам сайтов и сервисов.</p>
             </div>
           </div>
-	      <section>
-	        <h2>Проверяем</h2>
-	        <ul>
-	          <li>сертификат, SAN и цепочку доверия;</li>
-	          <li>TLS-версии и cipher suites;</li>
-		          <li>HSTS, OCSP stapling и дополнительные проверки уязвимостей;</li>
-	          <li>российскую TLS/ГОСТ-совместимость отдельным блоком;</li>
-	          <li>изменения в конфигурации между проверками (в режиме мониторинга).</li>
-	        </ul>
-	      </section>
-	      <section>
-	        <h2>Какие проблемы решает TLS Audit</h2>
-	        <ul>
-	          <li>сертификат закончился, а вы узнали от клиента — TLS Audit предупредит заранее;</li>
-	          <li>после обновления сервера оценка HTTPS упала — TLS Audit покажет изменения и пришлёт уведомление;</li>
-	          <li>приходится проверять десятки доменов вручную — TLS Audit хранит историю и следит автоматически;</li>
-	          <li>непонятно, насколько безопасно настроен сайт — TLS Audit объясняет проблемы и предлагает исправления.</li>
-	        </ul>
-	      </section>
-	      <section>
-	        <h2>Кому подходит</h2>
-	        <ul>
-	          <li>администраторам и DevOps, которым нужна быстрая диагностика HTTPS/TLS;</li>
-	          <li>владельцам сайтов, которым нужен понятный результат без лишнего шума;</li>
-	          <li>командам, которые хотят видеть изменения после правок и релизов;</li>
-	          <li>тем, кто хочет бесплатный публичный инструмент с удобной ссылкой на отчет.</li>
-	        </ul>
-	      </section>
-	      <section>
-	        <h2>Почему удобно</h2>
-	        <ul>
-	          <li>экономит время: не нужно запускать проверку вручную;</li>
-	          <li>помогает не пропустить регресс после изменений на сервере;</li>
-	          <li>даёт регулярные отчёты на email и историю состояния домена;</li>
-	          <li>собирает все результаты в одной понятной странице.</li>
-	        </ul>
-	      </section>
 		    </div>
     <footer class="site-footer">
       <span>TLS Audit проверяет только публичную HTTPS/TLS-конфигурацию. Контакт: {CONTACT_LINK}.</span>
