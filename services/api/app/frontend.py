@@ -1413,7 +1413,18 @@ def render_json_ld(data: dict) -> str:
     return f'<script type="application/ld+json">{payload}</script>'
 
 
-def render_frontend() -> str:
+def render_frontend(stats=None) -> str:
+    stats = stats or {}
+    total_scans = stats.get("total_scans")
+    monitored_domains = stats.get("monitored_domains")
+    scan_counter = ""
+    if total_scans is not None and monitored_domains is not None:
+        scan_counter = (
+            f"<p class=\"brand-counter\">Уже проверено: {escape(str(total_scans))} сканов"
+            f" • {escape(str(monitored_domains))} доменов на мониторинге</p>"
+        )
+    elif total_scans is not None:
+        scan_counter = f"<p class=\"brand-counter\">Уже проверено: {escape(str(total_scans))} сканов</p>"
     return """<!doctype html>
 <html lang="ru">
 <head>
@@ -1489,7 +1500,8 @@ def render_frontend() -> str:
     h2 { font-size: 20px; line-height: 1.2; margin-bottom: 14px; }
     h3 { font-size: 15px; line-height: 1.2; margin-bottom: 8px; }
 	    .muted { color: var(--muted); }
-	    .brand-note { margin-top: 8px; max-width: 700px; color: var(--muted); }
+    .brand-note { margin-top: 8px; max-width: 700px; color: var(--muted); }
+    .brand-counter { margin-top: 10px; color: var(--teal-dark); font-weight: 750; }
 	    .brand-link { color: inherit; text-decoration: none; }
 	    .brand-link:hover { color: var(--teal-dark); }
     form {
@@ -1887,7 +1899,8 @@ def render_frontend() -> str:
     <header>
 	      <div>
 	        <h1><a class="brand-link" href="/">TLS Audit</a></h1>
-	        <p class="brand-note">Добавьте домен и получайте уведомления об изменениях, сроках действия сертификатов и проблемах безопасности.</p>
+	        <p class="brand-note">Добавьте домен один раз — TLS Audit сам сообщит, если сертификат истекает, HTTPS-конфигурация ухудшилась или появились проблемы безопасности.</p>
+	        {SCAN_COUNTER}
 	      </div>
       <form id="check-form" data-testid="check-form">
         <div class="domain-field">
@@ -1937,7 +1950,7 @@ def render_frontend() -> str:
 		    <div id="report" class="hidden" data-testid="report"></div>
 		    <div id="about-page" class="about-page" data-testid="about-page">
 		      <div class="about-intro">
-		        <h2>Что это за сервис</h2>
+		        <h2>Какие проблемы решает TLS Audit</h2>
 		        <p>TLS Audit проверяет публичную HTTPS/TLS-конфигурацию сайта, формирует понятный отчёт с оценкой и помогает поддерживать безопасность через подписки на мониторинг.</p>
 		      </div>
           <div class="compare-strip">
@@ -2979,4 +2992,4 @@ def render_frontend() -> str:
     }
   </script>
 </body>
-</html>""".replace("{CONTACT_LINK}", CONTACT_LINK)
+</html>""".replace("{CONTACT_LINK}", CONTACT_LINK).replace("{SCAN_COUNTER}", scan_counter)

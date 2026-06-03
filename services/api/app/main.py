@@ -51,6 +51,15 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("tls_audit.api")
 
 
+def frontend_stats() -> Dict[str, object]:
+    scan_stats = archive_store.stats(days=3650) if archive_store.enabled else {"total_scans": 0}
+    monitored_domains = len(monitoring_store.list_domains(limit=1000)) if monitoring_store.enabled else 0
+    return {
+        "total_scans": scan_stats.get("total_scans", 0),
+        "monitored_domains": monitored_domains,
+    }
+
+
 app = FastAPI(
     title="TLS Audit API",
     version="0.1.0",
@@ -203,7 +212,7 @@ def health() -> Dict[str, str]:
 
 @app.get("/", response_class=HTMLResponse)
 def frontend() -> str:
-    return render_frontend()
+    return render_frontend(frontend_stats())
 
 
 @app.head("/")
@@ -213,7 +222,7 @@ def frontend_head() -> Response:
 
 @app.get("/scan", response_class=HTMLResponse)
 def scan_frontend() -> str:
-    return render_frontend()
+    return render_frontend(frontend_stats())
 
 
 @app.get("/about", response_class=RedirectResponse)
@@ -308,7 +317,7 @@ def sample_reports_page() -> str:
 
 @app.get("/support", response_class=HTMLResponse)
 def support_page() -> str:
-    return render_frontend()
+    return render_frontend(frontend_stats())
 
 
 @app.get("/monitor-status", response_class=HTMLResponse)

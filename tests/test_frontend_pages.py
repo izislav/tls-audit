@@ -10,7 +10,7 @@ from services.api.app.frontend import (
 
 class FrontendPagesTests(unittest.TestCase):
     def test_main_page_links_to_public_documents(self):
-        html = render_frontend()
+        html = render_frontend({"total_scans": 74, "monitored_domains": 14})
 
         self.assertIn('href="/privacy"', html)
         self.assertIn('href="/terms"', html)
@@ -34,6 +34,8 @@ class FrontendPagesTests(unittest.TestCase):
         self.assertIn("HTTPS-аудит", html)
         self.assertIn("118 проверок", html)
         self.assertIn("Без регистрации", html)
+        self.assertIn("Уже проверено: 74 сканов", html)
+        self.assertIn("14 доменов на мониторинге", html)
 
     def test_static_pages_have_canonical_and_return_link(self):
         for page_key, page in STATIC_PAGES.items():
