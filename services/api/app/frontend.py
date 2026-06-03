@@ -682,6 +682,53 @@ STATIC_PAGES = {
             ),
         ],
     },
+    "faq": {
+        "title": "FAQ: проверка SSL и TLS",
+        "description": "Ответы на частые вопросы про проверку SSL/TLS, оценку, мониторинг и то, чем TLS Audit полезен как публичный инструмент.",
+        "path": "/faq",
+        "updated": "03.06.2026",
+        "version": "0.2",
+        "sections": [
+            (
+                "Что делает TLS Audit",
+                [
+                    "Проверяет публичную HTTPS/TLS-конфигурацию сайта и показывает понятный отчет с причиной оценки, рисками и правками.",
+                    "Подходит для быстрой проверки своего домена перед релизом, после изменения сертификата или при плановой настройке HTTPS.",
+                ],
+            ),
+            (
+                "Чем это полезно для владельца сайта",
+                [
+                    "Сервис показывает не только букву оценки, но и то, что именно нужно поправить в конфиге.",
+                    "Можно быстро понять, почему сайт получил такую оценку, и что исправить в первую очередь.",
+                    "Регулярный мониторинг помогает заметить ухудшение конфигурации или истечение сертификата до инцидента.",
+                ],
+            ),
+            (
+                "Чем TLS Audit отличается от SSL Labs",
+                [
+                    "TLS Audit не заявляет буквальную эквивалентность SSL Labs и не копирует чужую методику 1:1.",
+                    "Цель сервиса — русскоязычная диагностика, готовые правки и мониторинг изменений, а не только рейтинг.",
+                    "Если нужен внешний референс, используйте SSL Labs параллельно, а TLS Audit — для оперативной работы и понятных рекомендаций.",
+                ],
+            ),
+            (
+                "Что можно проверить бесплатно",
+                [
+                    "Разовую публичную проверку домена.",
+                    "Базовый weekly мониторинг на один домен на email.",
+                    "Оценку сертификата, TLS-версий, cipher suites, HSTS, OCSP и русской TLS/ГОСТ-совместимости отдельным блоком.",
+                ],
+            ),
+            (
+                "Почему отчет можно пересылать коллегам",
+                [
+                    "У отчета есть прямая ссылка и понятная структура: итог, причины, что исправить и какие конфиги использовать.",
+                    "Следующий шаг развития — сделать отчет еще более пригодным для пересылки руководителю и администратору без лишней технической перегрузки.",
+                ],
+            ),
+        ],
+    },
     "support": {
         "title": "TLS Audit Pro",
         "description": "Расширенный режим: до 10 доменов, развернутые отчеты и уведомления об изменениях конфигурации.",
@@ -1373,7 +1420,7 @@ def render_frontend() -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TLS Audit — проверка HTTPS и TLS-конфигурации сайта</title>
-  <meta name="description" content="Бесплатная проверка SSL/TLS-конфигурации сайта: сертификат, цепочка доверия, TLS-версии, cipher suites, HSTS, OCSP и рекомендации по исправлению.">
+  <meta name="description" content="Бесплатная проверка SSL/TLS-конфигурации сайта: сертификат, цепочка доверия, TLS-версии, cipher suites, HSTS, OCSP, мониторинг и понятные рекомендации по исправлению.">
   <meta name="robots" content="index,follow">
   <meta name="theme-color" content="#0f766e">
   <link rel="canonical" href="https://tlsaudit.ru/">
@@ -1381,11 +1428,11 @@ def render_frontend() -> str:
   <meta property="og:locale" content="ru_RU">
   <meta property="og:site_name" content="TLS Audit">
   <meta property="og:title" content="TLS Audit — проверка HTTPS и TLS-конфигурации сайта">
-  <meta property="og:description" content="Проверьте сертификат, цепочку доверия, TLS-версии, cipher suites, HSTS и получите рекомендации по исправлению.">
+  <meta property="og:description" content="Бесплатная проверка HTTPS/TLS-конфигурации сайта с оценкой, причинами, рекомендациями и мониторингом изменений.">
   <meta property="og:url" content="https://tlsaudit.ru/">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="TLS Audit — проверка HTTPS и TLS-конфигурации сайта">
-  <meta name="twitter:description" content="Проверка SSL/TLS-конфигурации сайта с оценкой и рекомендациями.">
+  <meta name="twitter:description" content="Бесплатная проверка HTTPS/TLS-конфигурации сайта с оценкой, рекомендациями и мониторингом.">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -1905,7 +1952,7 @@ def render_frontend() -> str:
               <p class="muted" style="margin-top:6px">TLS Audit объясняет конфигурацию по-русски и не обещает буквальное совпадение оценок.</p>
             </div>
             <div class="compare-card">
-              <div class="compare-label">Публичный отчёт</div>
+              <div class="compare-label">Бесплатно</div>
               <div class="compare-value">/scan?job=...</div>
               <p class="muted" style="margin-top:6px">Завершенный отчет остается доступным по прямой ссылке и может использоваться как рабочий артефакт.</p>
             </div>
@@ -1982,6 +2029,7 @@ def render_frontend() -> str:
         <a href="/tls-audit-vs-ssl-labs">TLS Audit vs SSL Labs</a>
         <a href="/methodology-changelog">Changelog</a>
         <a href="/sample-reports">Примеры отчетов</a>
+        <a href="/faq">FAQ</a>
         <a href="/privacy">Политика данных</a>
         <a href="/terms">Условия</a>
         <a href="/cookies">Cookies</a>

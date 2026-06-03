@@ -28,6 +28,7 @@ class FrontendPagesTests(unittest.TestCase):
         self.assertIn('href="/tls-audit-vs-ssl-labs"', html)
         self.assertIn('href="/methodology-changelog"', html)
         self.assertIn('href="/sample-reports"', html)
+        self.assertIn('href="/faq"', html)
         self.assertIn("Политика данных", html)
         self.assertIn(f"mailto:{CONTACT_EMAIL}", html)
         self.assertIn("Не замена SSL Labs", html)
@@ -72,6 +73,7 @@ class FrontendPagesTests(unittest.TestCase):
             "tls-audit-vs-ssl-labs": "TLS Audit vs SSL Labs",
             "methodology-changelog": "Changelog методики TLS Audit",
             "sample-reports": "Примеры отчетов TLS Audit",
+            "faq": "FAQ: проверка SSL и TLS",
         }
 
         for page_key, title in cases.items():
@@ -88,6 +90,14 @@ class FrontendPagesTests(unittest.TestCase):
         self.assertIn("Ключевые группы проверок", html)
         self.assertIn("Что не покрывается", html)
         self.assertIn("testssl.sh", html)
+
+    def test_faq_page_has_search_intent_and_free_value(self):
+        html = render_static_page("faq")
+
+        self.assertIn("FAQ: проверка SSL и TLS", html)
+        self.assertIn("проверку SSL/TLS", html)
+        self.assertIn("Базовый weekly мониторинг", html)
+        self.assertIn("TLS Audit не заявляет буквальную эквивалентность SSL Labs", html)
 
 
 if __name__ == "__main__":
