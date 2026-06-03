@@ -31,7 +31,8 @@ class FrontendPagesTests(unittest.TestCase):
         self.assertIn('href="/faq"', html)
         self.assertIn("Политика данных", html)
         self.assertIn(f"mailto:{CONTACT_EMAIL}", html)
-        self.assertIn("Не замена SSL Labs", html)
+        self.assertIn("118 тестов", html)
+        self.assertIn("Без регистрации", html)
 
     def test_static_pages_have_canonical_and_return_link(self):
         for page_key, page in STATIC_PAGES.items():

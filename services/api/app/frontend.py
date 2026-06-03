@@ -1727,7 +1727,7 @@ def render_frontend() -> str:
     .detail-list li { overflow-wrap: anywhere; }
     .compare-strip {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 10px;
       margin-bottom: 12px;
       grid-column: 1 / -1;
@@ -1942,19 +1942,24 @@ def render_frontend() -> str:
 		      </div>
           <div class="compare-strip">
             <div class="compare-card">
-              <div class="compare-label">Методика</div>
-              <div class="compare-value">v0.2</div>
-              <p class="muted" style="margin-top:6px">Публичная страница с логикой оценки, ограничениями и changelog.</p>
+              <div class="compare-label">Глубина</div>
+              <div class="compare-value">118 тестов</div>
+              <p class="muted" style="margin-top:6px">Сертификат, цепочка, TLS-версии, cipher suites, HSTS, OCSP и дополнительные проверки уязвимостей.</p>
             </div>
             <div class="compare-card">
-              <div class="compare-label">Позиционирование</div>
-              <div class="compare-value">Не замена SSL Labs</div>
-              <p class="muted" style="margin-top:6px">TLS Audit объясняет конфигурацию по-русски и не обещает буквальное совпадение оценок.</p>
+              <div class="compare-label">Рекомендации</div>
+              <div class="compare-value">Что исправить</div>
+              <p class="muted" style="margin-top:6px">Не просто отчет, а понятные причины, риск и готовые правки для Nginx, Apache и других стеков.</p>
             </div>
             <div class="compare-card">
-              <div class="compare-label">Бесплатно</div>
-              <div class="compare-value">/scan?job=...</div>
-              <p class="muted" style="margin-top:6px">Завершенный отчет остается доступным по прямой ссылке и может использоваться как рабочий артефакт.</p>
+              <div class="compare-label">Мониторинг</div>
+              <div class="compare-value">Weekly + alerts</div>
+              <p class="muted" style="margin-top:6px">Регулярные отчеты, события об ухудшении и сравнение с прошлым состоянием по домену.</p>
+            </div>
+            <div class="compare-card">
+              <div class="compare-label">Публично</div>
+              <div class="compare-value">Без регистрации</div>
+              <p class="muted" style="margin-top:6px">Сервис открыт для быстрой проверки своего домена и дает прямую ссылку на отчет.</p>
             </div>
           </div>
 	      <section>
@@ -1968,49 +1973,21 @@ def render_frontend() -> str:
 	        </ul>
 	      </section>
 	      <section>
-	        <h2>Уже работает</h2>
+	        <h2>Кому подходит</h2>
 	        <ul>
-	          <li>разовая проверка домена с подробным отчётом и рекомендациями;</li>
-	          <li>базовая подписка: отчёт на email для одного домена;</li>
-	          <li>режим Pro: расширенные уведомления об изменениях конфигурации;</li>
-	          <li>история снимков мониторинга и сравнение с прошлым состоянием.</li>
+	          <li>администраторам и DevOps, которым нужна быстрая диагностика HTTPS/TLS;</li>
+	          <li>владельцам сайтов, которым нужен понятный результат без лишнего шума;</li>
+	          <li>командам, которые хотят видеть изменения после правок и релизов;</li>
+	          <li>тем, кто хочет бесплатный публичный инструмент с удобной ссылкой на отчет.</li>
 	        </ul>
 	      </section>
 	      <section>
-	        <h2>Оценка</h2>
-	        <ul>
-	          <li>A+ означает сильную публичную TLS-конфигурацию;</li>
-	          <li>D — нижняя публичная оценка для серьёзных проблем;</li>
-	          <li>hardening не смешивается с критичными рисками;</li>
-	          <li>российская совместимость не улучшает глобальную оценку;</li>
-	          <li>в мониторинге видно динамику: стало лучше, хуже или без изменений.</li>
-	        </ul>
-	      </section>
-	      <section>
-	        <h2>Дальше по плану</h2>
-	        <ul>
-	          <li>дальнейшее развитие расширенного режима и алертов;</li>
-	          <li>более частые проверки и отдельные аварийные уведомления;</li>
-	          <li>расширенные отчёты по трендам за период;</li>
-	          <li>каналы уведомлений помимо email.</li>
-	        </ul>
-	      </section>
-	      <section>
-	        <h2>Границы</h2>
-	        <ul>
-	          <li>оценка TLS Audit не эквивалентна SSL Labs и должна читаться вместе с причинами и рекомендациями;</li>
-	          <li>сервис предназначен для своих доменов и разрешённых проверок;</li>
-	          <li>приватные адреса и служебные сети блокируются;</li>
-	          <li>бесплатный мониторинг ограничен одним доменом на email;</li>
-	          <li>отчёт помогает с конфигурацией, но не заменяет полноценный аудит.</li>
-	        </ul>
-	      </section>
-	      <section>
-	        <h2>Мониторинг</h2>
+	        <h2>Почему удобно</h2>
 	        <ul>
 	          <li>экономит время: не нужно запускать проверку вручную;</li>
 	          <li>помогает не пропустить регресс после изменений на сервере;</li>
-	          <li>даёт регулярные отчёты на email и историю состояния домена.</li>
+	          <li>даёт регулярные отчёты на email и историю состояния домена;</li>
+	          <li>собирает все результаты в одной понятной странице.</li>
 	        </ul>
 	      </section>
 		    </div>
