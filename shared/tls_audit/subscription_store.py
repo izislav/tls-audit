@@ -68,6 +68,9 @@ class NullSubscriptionStore:
     def list_by_email(self, email: str, limit: int = 20) -> List[MonitorSubscription]:
         return []
 
+    def active_confirmed_count(self) -> int:
+        return 0
+
     def begin_ownership_verification(
         self,
         subscription_id: int,
@@ -215,6 +218,9 @@ class InMemorySubscriptionStore(NullSubscriptionStore):
         items = [item for item in self.items.values() if normalize_email(item.email) == email_norm]
         items.sort(key=lambda item: item.id, reverse=True)
         return items[: max(1, int(limit))]
+
+    def active_confirmed_count(self) -> int:
+        return sum(1 for item in self.items.values() if item.enabled and item.confirmed)
 
     def begin_ownership_verification(
         self,
@@ -444,6 +450,18 @@ class PostgresSubscriptionStore(NullSubscriptionStore):
                 {"email": normalize_email(email), "limit": max(1, int(limit))},
             ).fetchall()
         return [subscription_from_row(row) for row in rows]
+
+    def active_confirmed_count(self) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT count(*) AS count
+                FROM monitor_subscriptions
+                WHERE enabled = true
+                  AND confirmed = true
+                """
+            ).fetchone()
+        return int(row["count"] or 0) if row else 0
 
     def due(self, now: Optional[datetime] = None, limit: int = 20) -> List[MonitorSubscription]:
         with self.connect() as conn:

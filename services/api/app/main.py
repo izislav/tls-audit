@@ -53,7 +53,11 @@ logger = logging.getLogger("tls_audit.api")
 
 def frontend_stats() -> Dict[str, object]:
     scan_stats = archive_store.stats(days=3650) if archive_store.enabled else {"total_scans": 0}
-    monitored_domains = len(monitoring_store.list_domains(limit=1000)) if monitoring_store.enabled else 0
+    monitored_domains = (
+        subscription_store.active_confirmed_count()
+        if getattr(subscription_store, "enabled", False)
+        else 0
+    )
     return {
         "total_scans": scan_stats.get("total_scans", 0),
         "monitored_domains": monitored_domains,
