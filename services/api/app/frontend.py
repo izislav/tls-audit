@@ -884,6 +884,15 @@ def render_static_page(page_key: str) -> str:
             tokenInput.value = queryToken;
           }
 
+          function escapeHtml(value) {
+            return String(value ?? '')
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+          }
+
           function isActionRequired(item) {
             if (!item) return false;
             if (!item.confirmed) return true;
