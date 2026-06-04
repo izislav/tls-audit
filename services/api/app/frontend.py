@@ -920,6 +920,20 @@ def render_static_page(page_key: str) -> str:
             return value === 'http_file' ? 'HTTP файл' : 'DNS TXT';
           }
 
+          function getStatus(item) {
+            if (!item || !item.confirmed) return 'Требует действия';
+            if ((item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified) return 'Требует действия';
+            if (!item.enabled) return 'Пауза';
+            return 'В порядке';
+          }
+
+          function getCertificate(item) {
+            const days = item && item.certificate_expires_in_days;
+            if (days === null || days === undefined) return '—';
+            if (days < 0) return 'истёк';
+            return `${days} дн.`;
+          }
+
           function formatDateLong(value) {
             if (!value) return '—';
             const dt = new Date(value);
@@ -1060,18 +1074,6 @@ def render_static_page(page_key: str) -> str:
                   hour: '2-digit',
                   minute: '2-digit'
                 });
-              };
-              const getStatus = (item) => {
-                if (!item.confirmed) return 'Требует действия';
-                if ((item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified) return 'Требует действия';
-                if (!item.enabled) return 'Пауза';
-                return 'В порядке';
-              };
-              const getCertificate = (item) => {
-                const days = item.certificate_expires_in_days;
-                if (days === null || days === undefined) return '—';
-                if (days < 0) return 'истёк';
-                return `${days} дн.`;
               };
               const getHealthClass = (item) => {
                 if (!item.confirmed) return 'warning';
