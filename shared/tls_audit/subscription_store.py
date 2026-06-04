@@ -56,6 +56,9 @@ class NullSubscriptionStore:
     def disable(self, token: str) -> Optional[MonitorSubscription]:
         return None
 
+    def disable_by_id(self, subscription_id: int) -> Optional[MonitorSubscription]:
+        return None
+
     def find_by_email(self, email: str) -> List[MonitorSubscription]:
         return []
 
@@ -189,6 +192,15 @@ class InMemorySubscriptionStore(NullSubscriptionStore):
                 item.enabled = False
                 item.updated_at = now
                 return item
+        return None
+
+    def disable_by_id(self, subscription_id: int) -> Optional[MonitorSubscription]:
+        now = utcnow()
+        item = self.items.get(int(subscription_id))
+        if item and item.enabled:
+            item.enabled = False
+            item.updated_at = now
+            return item
         return None
 
     def find_by_email(self, email: str) -> List[MonitorSubscription]:
@@ -380,6 +392,19 @@ class PostgresSubscriptionStore(NullSubscriptionStore):
                 RETURNING *
                 """,
                 {"token": token},
+            ).fetchone()
+        return subscription_from_row(row) if row else None
+
+    def disable_by_id(self, subscription_id: int) -> Optional[MonitorSubscription]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                UPDATE monitor_subscriptions
+                SET enabled = false
+                WHERE id = %(id)s
+                RETURNING *
+                """,
+                {"id": int(subscription_id)},
             ).fetchone()
         return subscription_from_row(row) if row else None
 

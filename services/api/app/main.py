@@ -892,6 +892,20 @@ def list_monitor_subscriptions(token: str, limit: int = 20) -> Dict[str, object]
     }
 
 
+@app.delete("/api/subscriptions/monitoring/{subscription_id}")
+def delete_monitor_subscription(subscription_id: int, token: str) -> Dict[str, object]:
+    sub = require_subscription_owner(subscription_id, token)
+    disabled = subscription_store.disable_by_id(sub.id)
+    if not disabled:
+        raise HTTPException(status_code=404, detail="Подписка не найдена.")
+    return {
+        "status": "disabled",
+        "subscription_id": disabled.id,
+        "host": disabled.host,
+        "port": disabled.port,
+    }
+
+
 @app.get("/api/subscriptions/monitoring/events")
 def list_monitor_subscription_events(token: str, limit: int = 30) -> Dict[str, object]:
     normalized = require_monitor_owner_token(token)
@@ -1223,6 +1237,7 @@ def subscription_item_to_dict(item, domain) -> Dict[str, object]:
         "id": item.id,
         "host": item.host,
         "port": item.port,
+        "token": item.token,
         "plan": "pro" if item.plan == "support" else item.plan,
         "enabled": item.enabled,
         "confirmed": item.confirmed,

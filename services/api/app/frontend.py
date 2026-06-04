@@ -841,12 +841,14 @@ def render_static_page(page_key: str) -> str:
             <div id="monitor-flow-hint" class="lead" style="margin-top:0">
               Flow: подтвердите email → добавьте домен → пройдите DNS/HTTP challenge (для Pro) → запустите run now → проверьте events/diff.
             </div>
-            <div class="monitor-export-row">
-              <a id="monitor-export-json" class="ghost-button" href="#" target="_blank" rel="noopener">Экспорт JSON</a>
-              <a id="monitor-export-csv" class="ghost-button" href="#" target="_blank" rel="noopener">Экспорт CSV</a>
-            </div>
             <div id="monitor-status-message" class="lead" style="margin-top:0"></div>
             <div id="monitor-summary-box"></div>
+            <div class="monitor-top-actions">
+              <button id="monitor-open-add" type="button" class="ghost-button">+ Добавить домен</button>
+              <a id="monitor-export-csv" class="ghost-button" href="#" target="_blank" rel="noopener">Экспорт CSV</a>
+              <a id="monitor-export-json" class="ghost-button" href="#" target="_blank" rel="noopener">Экспорт JSON</a>
+            </div>
+            <div id="monitor-attention-box"></div>
             <div id="monitor-status-table"></div>
             <div id="monitor-events-box"></div>
           </div>
@@ -859,13 +861,15 @@ def render_static_page(page_key: str) -> str:
           const addHostInput = document.getElementById('monitor-add-host');
           const addPlanSelect = document.getElementById('monitor-add-plan');
           const addSubmitBtn = document.getElementById('monitor-add-submit');
+          const openAddBtn = document.getElementById('monitor-open-add');
           const msg = document.getElementById('monitor-status-message');
           const summaryBox = document.getElementById('monitor-summary-box');
+          const attentionBox = document.getElementById('monitor-attention-box');
           const tableBox = document.getElementById('monitor-status-table');
           const eventsBox = document.getElementById('monitor-events-box');
           const exportJson = document.getElementById('monitor-export-json');
           const exportCsv = document.getElementById('monitor-export-csv');
-          if (!tokenInput || !loadBtn || !msg || !summaryBox || !tableBox || !eventsBox || !addSubmitBtn) return;
+          if (!tokenInput || !loadBtn || !msg || !summaryBox || !attentionBox || !tableBox || !eventsBox || !addSubmitBtn) return;
           let ownerEmail = '';
           let latestEventPayload = [];
           let lastStatusData = null;
@@ -875,6 +879,38 @@ def render_static_page(page_key: str) -> str:
           const queryToken = (params.get('token') || '').trim();
           if (queryToken) {
             tokenInput.value = queryToken;
+          }
+
+          function isActionRequired(item) {
+            if (!item) return false;
+            if (!item.confirmed) return true;
+            if ((item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified) return true;
+            if (!item.enabled) return true;
+            return false;
+          }
+
+          function attentionTitle(item) {
+            if (!item) return 'Нужна проверка';
+            if (!item.confirmed) return 'нужно подтвердить email';
+            if ((item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified) return 'нужно подтвердить владение';
+            if (!item.enabled) return 'мониторинг приостановлен';
+            return 'всё спокойно';
+          }
+
+          function attentionDescription(item) {
+            if (!item) return 'Проверьте состояние подписки.';
+            if (!item.confirmed) return 'Мониторинг и alert приостановлены до подтверждения email.';
+            if ((item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified) return 'Мониторинг и alert приостановлены до подтверждения домена.';
+            if (!item.enabled) return 'Подписка отключена и не будет получать отчёты.';
+            return 'Никаких действий не требуется.';
+          }
+
+          function attentionStep(item) {
+            if (!item) return '—';
+            if (!item.confirmed) return 'Подтвердите email по ссылке из письма.';
+            if ((item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified) return 'Добавьте DNS TXT-запись или HTTP-файл для подтверждения.';
+            if (!item.enabled) return 'Включите подписку, чтобы вернуть отчёты и alert.';
+            return 'Следующий запуск уже запланирован.';
           }
 
           async function loadStatus() {
@@ -902,6 +938,7 @@ def render_static_page(page_key: str) -> str:
               lastStatusData = data;
               lastStatusItems = items;
               renderSummary();
+              renderAttention();
               msg.textContent = '';
               if (!items.length) {
                 tableBox.innerHTML = '<p class="lead" style="margin-top:0">Подписок не найдено.</p>';
@@ -1059,6 +1096,33 @@ def render_static_page(page_key: str) -> str:
                   }
                 });
               });
+              attentionBox.querySelectorAll('[data-attention-instruction]').forEach((button) => {
+                button.addEventListener('click', () => {
+                  const id = button.getAttribute('data-attention-instruction');
+                  const item = items.find((entry) => String(entry.id) === String(id));
+                  msg.textContent = attentionStep(item);
+                });
+              });
+              attentionBox.querySelectorAll('[data-attention-delete]').forEach((button) => {
+                button.addEventListener('click', async () => {
+                  const url = button.getAttribute('data-delete-url');
+                  const id = button.getAttribute('data-attention-delete');
+                  if (!url) return;
+                  if (!window.confirm('Удалить подписку ' + id + '?')) return;
+                  button.disabled = true;
+                  try {
+                    const resp = await fetch(url, { method: 'DELETE' });
+                    const data = await resp.json();
+                    if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось удалить подписку.');
+                    msg.textContent = 'Подписка отключена.';
+                    await loadStatus();
+                  } catch (error) {
+                    msg.textContent = error.message || 'Ошибка удаления.';
+                  } finally {
+                    button.disabled = false;
+                  }
+                });
+              });
               await loadEvents(token);
             } catch (error) {
               msg.textContent = error.message || 'Ошибка загрузки.';
@@ -1131,6 +1195,58 @@ def render_static_page(page_key: str) -> str:
                   <div><strong>Последняя weekly-отправка:</strong> ${escapeHtml(lastWeekly)}</div>
                   <div><strong>Следующий запуск:</strong> ${escapeHtml(nextRun)}</div>
                 </div>
+              </section>
+            `;
+          }
+
+          function renderAttention() {
+            const items = Array.isArray(lastStatusItems) ? lastStatusItems : [];
+            const active = items.filter(isActionRequired);
+            if (!active.length) {
+              attentionBox.innerHTML = `
+                <section class="monitor-attention-card">
+                  <div class="monitor-attention-head">
+                    <div>
+                      <div class="monitor-summary-kicker">Требуют внимания</div>
+                      <h3 style="margin:4px 0 0">Всё спокойно</h3>
+                    </div>
+                  </div>
+                  <p class="lead" style="margin-top:10px">Сейчас нет доменов, которые требуют действия.</p>
+                </section>
+              `;
+              return;
+            }
+            const cards = active.map((item) => {
+              const label = item.plan === 'pro' || item.plan === 'support' ? 'Pro' : 'Базовый';
+              const deleteUrl = item.token ? '/api/subscriptions/monitoring/' + encodeURIComponent(item.id) + '?token=' + encodeURIComponent(item.token) : '';
+              return `
+                <article class="monitor-attention-item">
+                  <div class="monitor-attention-topline">
+                    <div>
+                      <div class="monitor-attention-domain">${escapeHtml(item.host || '—')}</div>
+                      <div class="monitor-attention-status">Статус: ${escapeHtml(attentionTitle(item))}</div>
+                    </div>
+                    <div class="monitor-attention-badge">${escapeHtml(label)}</div>
+                  </div>
+                  <p class="monitor-attention-note">${escapeHtml(attentionDescription(item))}</p>
+                  <div class="monitor-attention-step">Следующий шаг: ${escapeHtml(attentionStep(item))}</div>
+                  <div class="monitor-attention-actions">
+                    <button class="ghost-button" type="button" data-attention-instruction="${escapeHtml(String(item.id))}">Показать инструкцию</button>
+                    ${item.confirmed && item.enabled ? `<button class="ghost-button" type="button" data-run-now="${escapeHtml(String(item.id))}">Проверить</button>` : ''}
+                    ${deleteUrl ? `<button class="ghost-button" type="button" data-attention-delete="${escapeHtml(String(item.id))}" data-delete-url="${escapeHtml(deleteUrl)}">Удалить</button>` : ''}
+                  </div>
+                </article>
+              `;
+            }).join('');
+            attentionBox.innerHTML = `
+              <section class="monitor-attention-card">
+                <div class="monitor-attention-head">
+                  <div>
+                    <div class="monitor-summary-kicker">Требуют внимания</div>
+                    <h3 style="margin:4px 0 0">${active.length} домен${active.length === 1 ? '' : (active.length < 5 ? 'а' : 'ов')}</h3>
+                  </div>
+                </div>
+                <div class="monitor-attention-list">${cards}</div>
               </section>
             `;
           }
@@ -1254,6 +1370,11 @@ def render_static_page(page_key: str) -> str:
 
           loadBtn.addEventListener('click', loadStatus);
           addSubmitBtn.addEventListener('click', addDomain);
+          if (openAddBtn) {
+            openAddBtn.addEventListener('click', () => {
+              if (addHostInput) addHostInput.focus();
+            });
+          }
           if (queryToken) {
             loadStatus();
           }
@@ -1420,6 +1541,69 @@ def render_static_page(page_key: str) -> str:
       gap: 6px;
       margin-top: 12px;
       color: var(--muted);
+    }}
+    .monitor-top-actions {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 10px 0 4px;
+    }}
+    .monitor-attention-card {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 14px;
+      margin-top: 10px;
+      box-shadow: 0 1px 0 rgba(0,0,0,.02);
+    }}
+    .monitor-attention-list {{
+      display: grid;
+      gap: 12px;
+      margin-top: 12px;
+    }}
+    .monitor-attention-item {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fcfdfb;
+      padding: 12px;
+    }}
+    .monitor-attention-topline {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }}
+    .monitor-attention-domain {{
+      font-size: 18px;
+      font-weight: 850;
+      line-height: 1.2;
+    }}
+    .monitor-attention-status,
+    .monitor-attention-note,
+    .monitor-attention-step {{
+      margin-top: 6px;
+      color: var(--muted);
+    }}
+    .monitor-attention-step {{
+      font-weight: 650;
+    }}
+    .monitor-attention-badge {{
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: #e8eefb;
+      color: #274879;
+      font-size: 13px;
+      font-weight: 750;
+      white-space: nowrap;
+    }}
+    .monitor-attention-actions {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
     }}
     .monitor-export-row {{
       display: flex;
