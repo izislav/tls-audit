@@ -1513,6 +1513,7 @@ def render_static_page(page_key: str) -> str:
         header_meta = ""
         header_back = ""
     elif page_key == "ssl-certificate-check":
+        header_meta = ""
         header_back = '<a class="back" href="/">Вернуться к проверке сертификата →</a>'
     return f"""<!doctype html>
 <html lang="ru">
