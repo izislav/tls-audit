@@ -916,6 +916,10 @@ def render_static_page(page_key: str) -> str:
             return 'Следующий запуск уже запланирован.';
           }
 
+          function ownershipMethodLabel(value) {
+            return value === 'http_file' ? 'HTTP файл' : 'DNS TXT';
+          }
+
           function formatDateLong(value) {
             if (!value) return '—';
             const dt = new Date(value);
@@ -1162,6 +1166,32 @@ def render_static_page(page_key: str) -> str:
                   msg.textContent = attentionStep(item);
                 });
               });
+              attentionBox.querySelectorAll('[data-own-challenge]').forEach((button) => {
+                button.addEventListener('click', async () => {
+                  const id = button.getAttribute('data-own-challenge');
+                  const methodInput = attentionBox.querySelector('[data-own-method="' + id + '"]');
+                  const method = (methodInput && methodInput.value ? methodInput.value : 'dns_txt').trim();
+                  button.disabled = true;
+                  try {
+                    const resp = await fetch('/api/subscriptions/monitoring/' + encodeURIComponent(id) + '/ownership/challenge?token=' + token, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ method })
+                    });
+                    const data = await resp.json();
+                    if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось создать challenge.');
+                    if (data.method === 'dns_txt') {
+                      msg.textContent = 'DNS challenge: TXT ' + data.record_name + ' = ' + data.record_value;
+                    } else {
+                      msg.textContent = 'HTTP challenge: ' + data.file_url + ' -> ' + data.file_content;
+                    }
+                  } catch (error) {
+                    msg.textContent = error.message || 'Ошибка challenge.';
+                  } finally {
+                    button.disabled = false;
+                  }
+                });
+              });
               attentionBox.querySelectorAll('[data-attention-delete]').forEach((button) => {
                 button.addEventListener('click', async () => {
                   const url = button.getAttribute('data-delete-url');
@@ -1280,20 +1310,28 @@ def render_static_page(page_key: str) -> str:
             const cards = active.map((item) => {
               const label = item.plan === 'pro' || item.plan === 'support' ? 'Pro' : 'Базовый';
               const deleteUrl = item.token ? '/api/subscriptions/monitoring/' + encodeURIComponent(item.id) + '?token=' + encodeURIComponent(item.token) : '';
+              const needsOwnership = (item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified;
               return `
-                <article class="monitor-attention-item">
+                <article class="monitor-attention-item ${needsOwnership ? 'monitor-attention-item--warning' : ''}">
                   <div class="monitor-attention-topline">
                     <div>
                       <div class="monitor-attention-domain">${escapeHtml(item.host || '—')}</div>
-                      <div class="monitor-attention-status">Статус: ${escapeHtml(attentionTitle(item))}</div>
+                      <div class="monitor-attention-status">${needsOwnership ? '🟡 Нужно подтвердить владение' : `Статус: ${escapeHtml(attentionTitle(item))}`}</div>
                     </div>
                     <div class="monitor-attention-badge">${escapeHtml(label)}</div>
                   </div>
-                  <p class="monitor-attention-note">${escapeHtml(attentionDescription(item))}</p>
-                  <div class="monitor-attention-step">Следующий шаг: ${escapeHtml(attentionStep(item))}</div>
+                  <p class="monitor-attention-note">${needsOwnership ? 'Мониторинг Pro приостановлен, пока домен не подтверждён.' : escapeHtml(attentionDescription(item))}</p>
+                  <div class="monitor-attention-step">${needsOwnership ? 'Выберите способ подтверждения и нажмите «Проверить».' : `Следующий шаг: ${escapeHtml(attentionStep(item))}`}</div>
                   <div class="monitor-attention-actions">
+                    ${needsOwnership ? `
+                      <select class="ownership-method" data-own-method="${escapeHtml(String(item.id))}">
+                        <option value="dns_txt">DNS TXT</option>
+                        <option value="http_file">HTTP файл</option>
+                      </select>
+                    ` : ''}
                     <button class="ghost-button" type="button" data-attention-instruction="${escapeHtml(String(item.id))}">Показать инструкцию</button>
-                    ${item.confirmed && item.enabled ? `<button class="ghost-button" type="button" data-run-now="${escapeHtml(String(item.id))}">Проверить</button>` : ''}
+                    ${needsOwnership ? `<button class="ghost-button" type="button" data-own-challenge="${escapeHtml(String(item.id))}">Проверить</button>` : ''}
+                    ${item.confirmed && item.enabled ? `<button class="ghost-button" type="button" data-run-now="${escapeHtml(String(item.id))}">Запустить</button>` : ''}
                     ${deleteUrl ? `<button class="ghost-button" type="button" data-attention-delete="${escapeHtml(String(item.id))}" data-delete-url="${escapeHtml(deleteUrl)}">Удалить</button>` : ''}
                   </div>
                 </article>
@@ -1627,6 +1665,10 @@ def render_static_page(page_key: str) -> str:
       border-radius: 8px;
       background: #fcfdfb;
       padding: 12px;
+    }}
+    .monitor-attention-item--warning {{
+      background: #fffdf4;
+      border-color: #eab308;
     }}
     .monitor-attention-topline {{
       display: flex;
