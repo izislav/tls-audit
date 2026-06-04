@@ -48,6 +48,8 @@ class FrontendPagesTests(unittest.TestCase):
                     self.assertIn("Мониторинг HTTPS и сертификатов", html)
                     self.assertIn("Email: —", html)
                     self.assertNotIn('<a class="back" href="/">Вернуться к проверке</a>', html)
+                elif page_key == "ssl-certificate-check":
+                    self.assertIn('<a class="back" href="/">Вернуться к проверке сертификата →</a>', html)
                 else:
                     self.assertIn('<a class="back" href="/">Вернуться к проверке</a>', html)
                 self.assertIn(page["title"], html)
@@ -61,7 +63,7 @@ class FrontendPagesTests(unittest.TestCase):
     def test_ssl_certificate_page_links_back_to_main_check(self):
         html = render_static_page("ssl-certificate-check")
 
-        self.assertIn('<a class="back" href="/">Вернуться к проверке</a>', html)
+        self.assertIn('<a class="back" href="/">Вернуться к проверке сертификата →</a>', html)
         self.assertNotIn('class="inline-tool"', html)
 
     def test_policy_pages_use_working_contact_email(self):
@@ -70,7 +72,7 @@ class FrontendPagesTests(unittest.TestCase):
 
     def test_seo_pages_have_search_intent_titles(self):
         cases = {
-            "ssl-certificate-check": "Проверка SSL-сертификата онлайн",
+            "ssl-certificate-check": "Проверка SSL-сертификата сайта",
             "tls-versions-check": "Проверка TLS 1.2 и TLS 1.3",
             "hsts-check": "Проверка HSTS и путь к A+",
             "nginx-tls-config": "TLS-конфиг для Nginx",
