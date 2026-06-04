@@ -5,6 +5,7 @@ from uuid import uuid4
 
 
 DEFAULT_WEEKLY_INTERVAL_SECONDS = 7 * 24 * 60 * 60
+MOSCOW_TZ = timezone(timedelta(hours=3))
 
 
 @dataclass
@@ -46,7 +47,7 @@ class NullSubscriptionStore:
             token=uuid4().hex,
             plan=normalize_plan(plan),
             interval_seconds=interval_seconds,
-            next_run_at=utcnow() + timedelta(seconds=interval_seconds),
+            next_run_at=next_weekly_report_at(utcnow()),
         )
 
     def confirm(self, token: str) -> Optional[MonitorSubscription]:
@@ -148,7 +149,7 @@ class InMemorySubscriptionStore(NullSubscriptionStore):
                 item.ownership_token = ""
                 item.ownership_verified_at = item.ownership_verified_at if reuse_verified else None
                 item.interval_seconds = int(interval_seconds)
-                item.next_run_at = now + timedelta(seconds=item.interval_seconds)
+                item.next_run_at = next_weekly_report_at(now)
                 item.updated_at = now
                 return item
         self._id += 1
@@ -165,7 +166,7 @@ class InMemorySubscriptionStore(NullSubscriptionStore):
             enabled=True,
             confirmed=False,
             interval_seconds=int(interval_seconds),
-            next_run_at=now + timedelta(seconds=int(interval_seconds)),
+            next_run_at=next_weekly_report_at(now),
             created_at=now,
             updated_at=now,
         )
@@ -254,7 +255,7 @@ class InMemorySubscriptionStore(NullSubscriptionStore):
             return
         when = when or utcnow()
         item.last_sent_at = when
-        item.next_run_at = when + timedelta(seconds=item.interval_seconds)
+        item.next_run_at = next_weekly_report_at(when)
         item.updated_at = when
 
     def should_send_report(self, subscription_id: int, scan_id: str) -> bool:
@@ -321,7 +322,7 @@ class PostgresSubscriptionStore(NullSubscriptionStore):
                 )
                 VALUES (
                     %(host)s, %(port)s, %(email)s, %(token)s, true, false, %(interval_seconds)s,
-                    now() + (%(interval_seconds)s * interval '1 second'), %(plan)s,
+                    %(next_run_at)s, %(plan)s,
                     '', '', NULL
                 )
                 ON CONFLICT (email, host, port) DO UPDATE SET
@@ -350,6 +351,7 @@ class PostgresSubscriptionStore(NullSubscriptionStore):
                     "email": email_norm,
                     "token": token,
                     "interval_seconds": int(interval_seconds),
+                    "next_run_at": next_weekly_report_at(utcnow()),
                     "plan": normalize_plan(plan),
                 },
             ).fetchone()
@@ -486,10 +488,10 @@ class PostgresSubscriptionStore(NullSubscriptionStore):
                 """
                 UPDATE monitor_subscriptions
                 SET last_sent_at = %(when)s,
-                    next_run_at = %(when)s + (interval_seconds * interval '1 second')
+                    next_run_at = %(next_run_at)s
                 WHERE id = %(id)s
                 """,
-                {"id": int(subscription_id), "when": when},
+                {"id": int(subscription_id), "when": when, "next_run_at": next_weekly_report_at(when)},
             )
 
     def should_send_report(self, subscription_id: int, scan_id: str) -> bool:
@@ -604,6 +606,16 @@ def normalize_plan(value: str) -> str:
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def next_weekly_report_at(reference: datetime) -> datetime:
+    current = reference.astimezone(MOSCOW_TZ)
+    target = current.replace(hour=5, minute=0, second=0, microsecond=0)
+    days_ahead = (7 - current.weekday()) % 7
+    if days_ahead == 0 and current >= target:
+        days_ahead = 7
+    target = target + timedelta(days=days_ahead)
+    return target.astimezone(timezone.utc)
 
 
 def subscription_from_row(row: Dict[str, object]) -> MonitorSubscription:

@@ -1,8 +1,8 @@
 import unittest
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from shared.tls_audit.subscription_store import InMemorySubscriptionStore
-from shared.tls_audit.subscription_store import utcnow
+from shared.tls_audit.subscription_store import next_weekly_report_at, utcnow
 
 
 class SubscriptionStoreTests(unittest.TestCase):
@@ -74,6 +74,23 @@ class SubscriptionStoreTests(unittest.TestCase):
         self.assertEqual(first.id, second.id)
         self.assertIsNotNone(second.ownership_verified_at)
         self.assertEqual(second.ownership_method, "trusted_reuse")
+
+    def test_next_weekly_report_at_pins_to_monday_five_moscow(self) -> None:
+        reference = datetime(2026, 6, 4, 12, 0, tzinfo=timezone.utc)  # Thursday
+        scheduled = next_weekly_report_at(reference)
+
+        self.assertEqual(scheduled.weekday(), 0)
+        self.assertEqual(scheduled.astimezone(timezone(timedelta(hours=3))).hour, 5)
+        self.assertEqual(scheduled.astimezone(timezone(timedelta(hours=3))).minute, 0)
+
+    def test_next_weekly_report_at_moves_forward_when_monday_window_passed(self) -> None:
+        reference = datetime(2026, 6, 1, 3, 10, tzinfo=timezone.utc)  # Monday 06:10 Moscow
+        scheduled = next_weekly_report_at(reference)
+
+        local = scheduled.astimezone(timezone(timedelta(hours=3)))
+        self.assertEqual(local.weekday(), 0)
+        self.assertEqual(local.hour, 5)
+        self.assertEqual(local.day, 8)
 
 
 if __name__ == "__main__":
