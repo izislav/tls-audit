@@ -959,16 +959,27 @@ def render_static_page(page_key: str) -> str:
               tableBox.innerHTML = `
                 <div class="monitor-table-wrap">
                 <table class="monitor-table">
+                  <colgroup>
+                    <col style="width: 18%">
+                    <col style="width: 7%">
+                    <col style="width: 10%">
+                    <col style="width: 12%">
+                    <col style="width: 7%">
+                    <col style="width: 11%">
+                    <col style="width: 11%">
+                    <col style="width: 14%">
+                    <col style="width: 10%">
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>Домен</th>
                       <th>План</th>
-                      <th>Подтверждение</th>
+                      <th>Подтверждено</th>
                       <th>Владение</th>
                       <th>Активна</th>
-                      <th>Последняя отправка</th>
-                      <th>Следующий запуск</th>
-                      <th>Следующий шаг</th>
+                      <th>Последняя</th>
+                      <th>След. запуск</th>
+                      <th>Шаг</th>
                       <th>Действия</th>
                     </tr>
                   </thead>
@@ -1286,7 +1297,8 @@ def render_static_page(page_key: str) -> str:
     .monitor-table {{
       width: 100%;
       border-collapse: collapse;
-      min-width: 900px;
+      min-width: 1240px;
+      table-layout: fixed;
     }}
     .monitor-table th,
     .monitor-table td {{
@@ -1295,15 +1307,21 @@ def render_static_page(page_key: str) -> str:
       text-align: left;
       vertical-align: top;
       white-space: normal;
-      word-break: break-word;
+      overflow-wrap: anywhere;
+      word-break: normal;
+      hyphens: none;
     }}
     .monitor-table th {{
       font-size: 14px;
       color: var(--muted);
       font-weight: 700;
+      white-space: nowrap;
+      overflow-wrap: normal;
+      word-break: normal;
+      line-height: 1.15;
     }}
     .monitor-actions {{
-      min-width: 280px;
+      min-width: 300px;
     }}
     .ownership-row {{
       display: flex;
