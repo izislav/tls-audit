@@ -850,6 +850,7 @@ def render_static_page(page_key: str) -> str:
             </div>
             <div id="monitor-attention-box"></div>
             <div id="monitor-status-table"></div>
+            <div id="monitor-domain-detail-box"></div>
             <div id="monitor-events-box"></div>
           </div>
         </section>
@@ -866,14 +867,16 @@ def render_static_page(page_key: str) -> str:
           const summaryBox = document.getElementById('monitor-summary-box');
           const attentionBox = document.getElementById('monitor-attention-box');
           const tableBox = document.getElementById('monitor-status-table');
+          const detailBox = document.getElementById('monitor-domain-detail-box');
           const eventsBox = document.getElementById('monitor-events-box');
           const exportJson = document.getElementById('monitor-export-json');
           const exportCsv = document.getElementById('monitor-export-csv');
-          if (!tokenInput || !loadBtn || !msg || !summaryBox || !attentionBox || !tableBox || !eventsBox || !addSubmitBtn) return;
+          if (!tokenInput || !loadBtn || !msg || !summaryBox || !attentionBox || !tableBox || !detailBox || !eventsBox || !addSubmitBtn) return;
           let ownerEmail = '';
           let latestEventPayload = [];
           let lastStatusData = null;
           let lastStatusItems = [];
+          let selectedDomainId = null;
 
           const params = new URLSearchParams(window.location.search);
           const queryToken = (params.get('token') || '').trim();
@@ -911,6 +914,104 @@ def render_static_page(page_key: str) -> str:
             if ((item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified) return 'Добавьте DNS TXT-запись или HTTP-файл для подтверждения.';
             if (!item.enabled) return 'Включите подписку, чтобы вернуть отчёты и alert.';
             return 'Следующий запуск уже запланирован.';
+          }
+
+          function formatDateLong(value) {
+            if (!value) return '—';
+            const dt = new Date(value);
+            if (Number.isNaN(dt.getTime())) return value;
+            return dt.toLocaleString('ru-RU', {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit'
+            });
+          }
+
+          function renderDomainDetail(item, token) {
+            if (!item) {
+              detailBox.innerHTML = '';
+              return;
+            }
+            const reportUrl = item.latest_scan_id ? '/scan?job=' + encodeURIComponent(item.latest_scan_id) : '';
+            const deleteUrl = item.token ? '/api/subscriptions/monitoring/' + encodeURIComponent(item.id) + '?token=' + encodeURIComponent(item.token) : '';
+            const confirmEmailText = item.confirmed ? 'да' : 'нет';
+            const ownershipText = (item.plan === 'pro' || item.plan === 'support')
+              ? (item.ownership_verified ? 'да' : 'нет')
+              : 'не требуется';
+            const activeText = item.enabled ? 'да' : 'нет';
+            detailBox.innerHTML = `
+              <section class="monitor-domain-detail">
+                <div class="monitor-domain-detail-head">
+                  <div>
+                    <div class="monitor-summary-kicker">Детали домена</div>
+                    <h3 style="margin:4px 0 0">${escapeHtml(item.host || '—')}</h3>
+                  </div>
+                  <div class="monitor-attention-badge">${escapeHtml(getStatus(item))}</div>
+                </div>
+                <div class="monitor-domain-detail-grid">
+                  <div><strong>План:</strong> ${escapeHtml(item.plan === 'pro' || item.plan === 'support' ? 'Pro' : 'Базовый')}</div>
+                  <div><strong>Email подтверждён:</strong> ${escapeHtml(confirmEmailText)}</div>
+                  <div><strong>Владение подтверждено:</strong> ${escapeHtml(ownershipText)}</div>
+                  <div><strong>Мониторинг активен:</strong> ${escapeHtml(activeText)}</div>
+                  <div><strong>Последний успешный скан:</strong> ${escapeHtml(formatDateLong(item.last_scan_at || item.last_sent_at))}</div>
+                  <div><strong>Следующий запуск:</strong> ${escapeHtml(formatDateLong(item.next_run_at))}</div>
+                </div>
+                <div class="monitor-domain-detail-actions">
+                  ${reportUrl ? `<a class="ghost-button" href="${escapeHtml(reportUrl)}" target="_blank" rel="noopener">Открыть отчёт</a>` : ''}
+                  ${item.confirmed && item.enabled ? `<button class="ghost-button" type="button" data-detail-run="${escapeHtml(String(item.id))}">Запустить сейчас</button>` : ''}
+                  <button class="ghost-button" type="button" data-detail-settings="${escapeHtml(String(item.id))}">Настройки</button>
+                  ${deleteUrl ? `<button class="ghost-button" type="button" data-detail-delete="${escapeHtml(String(item.id))}" data-delete-url="${escapeHtml(deleteUrl)}">Удалить</button>` : ''}
+                </div>
+              </section>
+            `;
+            detailBox.querySelectorAll('[data-detail-run]').forEach((button) => {
+              button.addEventListener('click', async () => {
+                const id = button.getAttribute('data-detail-run');
+                button.disabled = true;
+                try {
+                  const resp = await fetch('/api/subscriptions/monitoring/' + encodeURIComponent(id) + '/run-now?token=' + token, {
+                    method: 'POST'
+                  });
+                  const runData = await resp.json();
+                  if (!resp.ok) {
+                    throw new Error((runData && runData.detail) || 'Не удалось запустить проверку.');
+                  }
+                  msg.textContent = 'Ручная проверка поставлена в очередь.';
+                  await loadEvents(token);
+                } catch (error) {
+                  msg.textContent = error.message || 'Ошибка запуска.';
+                } finally {
+                  button.disabled = false;
+                }
+              });
+            });
+            detailBox.querySelectorAll('[data-detail-settings]').forEach((button) => {
+              button.addEventListener('click', () => {
+                msg.textContent = attentionStep(item);
+              });
+            });
+            detailBox.querySelectorAll('[data-detail-delete]').forEach((button) => {
+              button.addEventListener('click', async () => {
+                const url = button.getAttribute('data-delete-url');
+                if (!url) return;
+                if (!window.confirm('Удалить подписку ' + item.host + '?')) return;
+                button.disabled = true;
+                try {
+                  const resp = await fetch(url, { method: 'DELETE' });
+                  const data = await resp.json();
+                  if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось удалить подписку.');
+                  msg.textContent = 'Подписка отключена.';
+                  selectedDomainId = null;
+                  await loadStatus();
+                } catch (error) {
+                  msg.textContent = error.message || 'Ошибка удаления.';
+                } finally {
+                  button.disabled = false;
+                }
+              });
+            });
           }
 
           async function loadStatus() {
@@ -969,7 +1070,7 @@ def render_static_page(page_key: str) -> str:
                 return `${days} дн.`;
               };
               const rows = items.map((item) => `
-                <tr>
+                <tr class="monitor-domain-row ${selectedDomainId === item.id ? 'is-selected' : ''}" data-domain-row="${item.id}">
                   <td><strong>${item.host}</strong></td>
                   <td>${getStatus(item)}</td>
                   <td>${getCertificate(item)}</td>
@@ -1004,6 +1105,16 @@ def render_static_page(page_key: str) -> str:
                 </table>
                 </div>
               `;
+              tableBox.querySelectorAll('[data-domain-row]').forEach((row) => {
+                row.addEventListener('click', () => {
+                  const id = Number(row.getAttribute('data-domain-row'));
+                  selectedDomainId = id;
+                  const selected = items.find((entry) => entry.id === id);
+                  renderDomainDetail(selected, token);
+                  tableBox.querySelectorAll('.monitor-domain-row').forEach((itemRow) => itemRow.classList.remove('is-selected'));
+                  row.classList.add('is-selected');
+                });
+              });
               tableBox.querySelectorAll('[data-run-now]').forEach((button) => {
                 button.addEventListener('click', async () => {
                   const id = button.getAttribute('data-run-now');
@@ -1071,6 +1182,8 @@ def render_static_page(page_key: str) -> str:
                   }
                 });
               });
+              const selected = selectedDomainId ? items.find((entry) => entry.id === selectedDomainId) : items[0];
+              renderDomainDetail(selected, token);
               await loadEvents(token);
             } catch (error) {
               msg.textContent = error.message || 'Ошибка загрузки.';
@@ -1552,6 +1665,38 @@ def render_static_page(page_key: str) -> str:
       flex-wrap: wrap;
       gap: 8px;
       margin-top: 12px;
+    }}
+    .monitor-domain-detail {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 14px;
+      margin-top: 10px;
+      box-shadow: 0 1px 0 rgba(0,0,0,.02);
+    }}
+    .monitor-domain-detail-head {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }}
+    .monitor-domain-detail-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 16px;
+      margin-top: 12px;
+    }}
+    .monitor-domain-detail-actions {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }}
+    .monitor-domain-row {{
+      cursor: pointer;
+    }}
+    .monitor-domain-row.is-selected td {{
+      background: #eef7f5;
     }}
     .monitor-export-row {{
       display: flex;
