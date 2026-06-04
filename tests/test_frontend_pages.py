@@ -58,7 +58,7 @@ class FrontendPagesTests(unittest.TestCase):
         html = render_static_page("cookies")
 
         self.assertIn("не устанавливает необязательные cookies", html)
-        self.assertIn("Если позже будет подключена аналитика", html)
+        self.assertIn("Если появится Яндекс Метрика или другой счетчик", html)
 
     def test_ssl_certificate_page_links_back_to_main_check(self):
         html = render_static_page("ssl-certificate-check")
