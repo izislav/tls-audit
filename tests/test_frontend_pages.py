@@ -44,7 +44,12 @@ class FrontendPagesTests(unittest.TestCase):
 
                 self.assertIn(f'<link rel="canonical" href="https://tlsaudit.ru{page["path"]}">', html)
                 self.assertIn('"@type":"TechArticle"', html)
-                self.assertIn('<a class="back" href="/">Вернуться к проверке</a>', html)
+                if page_key == "monitor-status":
+                    self.assertIn("Мониторинг HTTPS и сертификатов", html)
+                    self.assertIn("Email: —", html)
+                    self.assertNotIn('<a class="back" href="/">Вернуться к проверке</a>', html)
+                else:
+                    self.assertIn('<a class="back" href="/">Вернуться к проверке</a>', html)
                 self.assertIn(page["title"], html)
 
     def test_cookie_page_says_no_optional_cookies(self):

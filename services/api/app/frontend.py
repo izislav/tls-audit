@@ -791,17 +791,19 @@ def render_static_page(page_key: str) -> str:
             "dateModified": "2026-05-25",
         }
     )
-    sections = "\n".join(
-        f"""
-        <section>
-          <h2>{escape(title)}</h2>
-          <ul>
-            {''.join(f'<li>{render_text_with_contact_link(item)}</li>' for item in items)}
-          </ul>
-        </section>
-        """
-        for title, items in page["sections"]
-    )
+    sections = ""
+    if page_key != "monitor-status":
+        sections = "\n".join(
+            f"""
+            <section>
+              <h2>{escape(title)}</h2>
+              <ul>
+                {''.join(f'<li>{render_text_with_contact_link(item)}</li>' for item in items)}
+              </ul>
+            </section>
+            """
+            for title, items in page["sections"]
+        )
     tables = "\n".join(
         f"""
         <section>
@@ -823,23 +825,22 @@ def render_static_page(page_key: str) -> str:
     if page_key == "monitor-status":
         sections += """
         <section>
-          <h2>Проверка статуса</h2>
           <div class="monitor-status-form">
-            <div class="monitor-inline-row monitor-inline-row--two">
-              <input id="monitor-status-token" type="text" placeholder="Токен из ссылки управления">
-              <button id="monitor-status-load" type="button">Открыть подписки</button>
+            <input id="monitor-status-token" type="hidden" value="">
+            <div class="monitor-account-head">
+              <div>
+                <div id="monitor-owner-email" class="lead" style="margin-top:0">Email: —</div>
+              </div>
+              <div class="monitor-account-actions">
+                <button id="monitor-add-submit" type="button">Добавить домен</button>
+              </div>
             </div>
-            <div id="monitor-owner-email" class="lead" style="margin-top:0"></div>
-            <div class="monitor-inline-row">
+            <div class="monitor-inline-row monitor-inline-row--compact">
               <input id="monitor-add-host" type="text" placeholder="example.ru">
               <select id="monitor-add-plan">
                 <option value="free">Базовый</option>
                 <option value="support">Pro</option>
               </select>
-              <button id="monitor-add-submit" type="button">Добавить домен</button>
-            </div>
-            <div id="monitor-flow-hint" class="lead" style="margin-top:0">
-              Flow: подтвердите email → добавьте домен → пройдите DNS/HTTP challenge (для Pro) → запустите run now → проверьте events/diff.
             </div>
             <div id="monitor-status-message" class="lead" style="margin-top:0"></div>
             <div id="monitor-summary-box"></div>
@@ -857,7 +858,6 @@ def render_static_page(page_key: str) -> str:
         <script>
         (() => {
           const tokenInput = document.getElementById('monitor-status-token');
-          const loadBtn = document.getElementById('monitor-status-load');
           const ownerEmailBox = document.getElementById('monitor-owner-email');
           const addHostInput = document.getElementById('monitor-add-host');
           const addPlanSelect = document.getElementById('monitor-add-plan');
@@ -871,7 +871,7 @@ def render_static_page(page_key: str) -> str:
           const eventsBox = document.getElementById('monitor-events-box');
           const exportJson = document.getElementById('monitor-export-json');
           const exportCsv = document.getElementById('monitor-export-csv');
-          if (!tokenInput || !loadBtn || !msg || !summaryBox || !attentionBox || !tableBox || !detailBox || !eventsBox || !addSubmitBtn) return;
+          if (!tokenInput || !msg || !summaryBox || !attentionBox || !tableBox || !detailBox || !eventsBox || !addSubmitBtn) return;
           let ownerEmail = '';
           let latestEventPayload = [];
           let lastStatusData = null;
@@ -1045,10 +1045,9 @@ def render_static_page(page_key: str) -> str:
             msg.textContent = '';
             tableBox.innerHTML = '';
             eventsBox.innerHTML = '';
-            loadBtn.disabled = true;
             try {
               const token = encodeURIComponent((tokenInput.value || '').trim());
-              if (!token) throw new Error('Укажите токен из письма управления подпиской.');
+              if (!token) throw new Error('Откройте страницу по ссылке из письма управления подпиской.');
               if (exportJson && exportCsv) {
                 exportJson.href = '/api/subscriptions/monitoring/export.json?token=' + token;
                 exportCsv.href = '/api/subscriptions/monitoring/export.csv?token=' + token;
@@ -1059,7 +1058,7 @@ def render_static_page(page_key: str) -> str:
                 throw new Error((data && data.detail) || 'Не удалось открыть приватную страницу подписки.');
               }
               ownerEmail = (data.email || '').trim();
-              if (ownerEmailBox) ownerEmailBox.textContent = ownerEmail ? ('Email владельца: ' + ownerEmail) : '';
+              if (ownerEmailBox) ownerEmailBox.textContent = ownerEmail ? ('Email: ' + ownerEmail) : 'Email: —';
               const planLabel = (value) => value === 'pro' || value === 'support' ? 'Pro' : 'Базовый';
               if (addPlanSelect) addPlanSelect.value = data.plan === 'pro' ? 'support' : 'free';
               const items = Array.isArray(data.items) ? data.items : [];
@@ -1243,8 +1242,6 @@ def render_static_page(page_key: str) -> str:
               await loadEvents(token);
             } catch (error) {
               msg.textContent = error.message || 'Ошибка загрузки.';
-            } finally {
-              loadBtn.disabled = false;
             }
           }
 
@@ -1493,7 +1490,6 @@ def render_static_page(page_key: str) -> str:
             }
           }
 
-          loadBtn.addEventListener('click', loadStatus);
           addSubmitBtn.addEventListener('click', addDomain);
           if (openAddBtn) {
             openAddBtn.addEventListener('click', () => {
@@ -1502,10 +1498,19 @@ def render_static_page(page_key: str) -> str:
           }
           if (queryToken) {
             loadStatus();
+          } else {
+            msg.textContent = 'Откройте страницу по ссылке из письма управления подпиской.';
           }
         })();
         </script>
         """
+    header_description = page["description"]
+    header_meta = f'<p class="lead">Версия методики: {escape(str(page.get("version", "0.1")))}. Последнее обновление: {escape(updated)}.</p>'
+    header_back = '<a class="back" href="/">Вернуться к проверке</a>'
+    if page_key == "monitor-status":
+        header_description = "Мониторинг HTTPS и сертификатов"
+        header_meta = ""
+        header_back = ""
     return f"""<!doctype html>
 <html lang="ru">
 <head>
@@ -1587,15 +1592,30 @@ def render_static_page(page_key: str) -> str:
       gap: 8px;
       align-items: center;
     }}
+    .monitor-inline-row--compact {{
+      grid-template-columns: minmax(0, 1fr) 180px;
+    }}
     .monitor-inline-row--two {{
       display: grid;
       grid-template-columns: 1fr auto;
+    }}
+    .monitor-account-head {{
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+    }}
+    .monitor-account-actions {{
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      min-width: 220px;
     }}
     #monitor-add-plan {{
       min-width: 160px;
     }}
     #monitor-add-submit {{
-      min-width: 170px;
+      min-width: 220px;
     }}
     .monitor-status-form button {{
       border: 0;
@@ -1881,6 +1901,17 @@ def render_static_page(page_key: str) -> str:
       .monitor-inline-row {{
         grid-template-columns: 1fr;
       }}
+      .monitor-inline-row--compact {{
+        grid-template-columns: 1fr;
+      }}
+      .monitor-account-head {{
+        flex-direction: column;
+        align-items: stretch;
+      }}
+      .monitor-account-actions {{
+        min-width: 0;
+        justify-content: flex-start;
+      }}
       .monitor-summary-grid {{
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }}
@@ -1899,9 +1930,9 @@ def render_static_page(page_key: str) -> str:
   <main>
     <header>
       <h1><a class="brand-link" href="/">TLS Audit</a></h1>
-      <p class="lead">{escape(page["description"])}</p>
-      <p class="lead">Версия методики: {escape(str(page.get("version", "0.1")))}. Последнее обновление: {escape(updated)}.</p>
-      <a class="back" href="/">Вернуться к проверке</a>
+      {f'<p class="lead">{escape(header_description)}</p>' if header_description else ''}
+      {header_meta}
+      {header_back}
     </header>
     <div class="content">
       {sections}
