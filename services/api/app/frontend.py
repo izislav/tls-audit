@@ -846,6 +846,7 @@ def render_static_page(page_key: str) -> str:
               <a id="monitor-export-csv" class="ghost-button" href="#" target="_blank" rel="noopener">Экспорт CSV</a>
             </div>
             <div id="monitor-status-message" class="lead" style="margin-top:0"></div>
+            <div id="monitor-summary-box"></div>
             <div id="monitor-status-table"></div>
             <div id="monitor-events-box"></div>
           </div>
@@ -859,13 +860,16 @@ def render_static_page(page_key: str) -> str:
           const addPlanSelect = document.getElementById('monitor-add-plan');
           const addSubmitBtn = document.getElementById('monitor-add-submit');
           const msg = document.getElementById('monitor-status-message');
+          const summaryBox = document.getElementById('monitor-summary-box');
           const tableBox = document.getElementById('monitor-status-table');
           const eventsBox = document.getElementById('monitor-events-box');
           const exportJson = document.getElementById('monitor-export-json');
           const exportCsv = document.getElementById('monitor-export-csv');
-          if (!tokenInput || !loadBtn || !msg || !tableBox || !eventsBox || !addSubmitBtn) return;
+          if (!tokenInput || !loadBtn || !msg || !summaryBox || !tableBox || !eventsBox || !addSubmitBtn) return;
           let ownerEmail = '';
           let latestEventPayload = [];
+          let lastStatusData = null;
+          let lastStatusItems = [];
 
           const params = new URLSearchParams(window.location.search);
           const queryToken = (params.get('token') || '').trim();
@@ -894,9 +898,11 @@ def render_static_page(page_key: str) -> str:
               if (ownerEmailBox) ownerEmailBox.textContent = ownerEmail ? ('Email владельца: ' + ownerEmail) : '';
               const planLabel = (value) => value === 'pro' || value === 'support' ? 'Pro' : 'Базовый';
               if (addPlanSelect) addPlanSelect.value = data.plan === 'pro' ? 'support' : 'free';
-              const lastWeekly = latestWeeklySend(Array.isArray(data.items) ? data.items : []);
-              msg.textContent = `План: ${planLabel(data.plan)}, лимит: ${data.domain_limit}. Подписок: ${(data.items || []).length}. Последняя успешная weekly отправка: ${lastWeekly}.`;
               const items = Array.isArray(data.items) ? data.items : [];
+              lastStatusData = data;
+              lastStatusItems = items;
+              renderSummary();
+              msg.textContent = '';
               if (!items.length) {
                 tableBox.innerHTML = '<p class="lead" style="margin-top:0">Подписок не найдено.</p>';
                 await loadEvents(token);
@@ -1068,10 +1074,65 @@ def render_static_page(page_key: str) -> str:
               const data = await resp.json();
               if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось загрузить события.');
               latestEventPayload = Array.isArray(data.items) ? data.items : [];
+              renderSummary();
               renderEventsByFilter('all');
             } catch (_error) {
               eventsBox.innerHTML = '<p class="lead">Не удалось загрузить события.</p>';
             }
+          }
+
+          function renderSummary() {
+            const items = Array.isArray(lastStatusItems) ? lastStatusItems : [];
+            if (!items.length && !lastStatusData) {
+              summaryBox.innerHTML = '';
+              return;
+            }
+            const totalDomains = items.length;
+            const activeItems = items.filter((item) => item.confirmed && item.enabled && (item.plan !== 'pro' && item.plan !== 'support' || item.ownership_verified));
+            const okCount = activeItems.length;
+            const setupCount = Math.max(0, totalDomains - okCount);
+            const criticalEvents = Array.isArray(latestEventPayload)
+              ? latestEventPayload.reduce((total, item) => {
+                  const events = Array.isArray(item.events) ? item.events : [];
+                  return total + events.filter((event) => String(event.severity || '').toLowerCase() === 'critical').length;
+                }, 0)
+              : 0;
+            const lastWeekly = latestWeeklySend(items);
+            const nextRun = latestNextRun(items);
+            const planLabel = lastStatusData && (lastStatusData.plan === 'pro' || lastStatusData.plan === 'support') ? 'Pro' : 'Базовый';
+            summaryBox.innerHTML = `
+              <section class="monitor-summary-card">
+                <div class="monitor-summary-head">
+                  <div>
+                    <div class="monitor-summary-kicker">Мониторинг HTTPS</div>
+                    <h3 style="margin:4px 0 0">Состояние подписок</h3>
+                  </div>
+                  <div class="monitor-summary-pill">${escapeHtml(planLabel)}</div>
+                </div>
+                <div class="monitor-summary-grid">
+                  <div class="monitor-summary-metric">
+                    <div class="monitor-summary-value">${escapeHtml(String(totalDomains))}</div>
+                    <div class="monitor-summary-label">доменов на мониторинге</div>
+                  </div>
+                  <div class="monitor-summary-metric">
+                    <div class="monitor-summary-value">${escapeHtml(String(okCount))}</div>
+                    <div class="monitor-summary-label">в порядке</div>
+                  </div>
+                  <div class="monitor-summary-metric">
+                    <div class="monitor-summary-value">${escapeHtml(String(setupCount))}</div>
+                    <div class="monitor-summary-label">требует настройки</div>
+                  </div>
+                  <div class="monitor-summary-metric">
+                    <div class="monitor-summary-value">${escapeHtml(String(criticalEvents))}</div>
+                    <div class="monitor-summary-label">критичных событий</div>
+                  </div>
+                </div>
+                <div class="monitor-summary-dates">
+                  <div><strong>Последняя weekly-отправка:</strong> ${escapeHtml(lastWeekly)}</div>
+                  <div><strong>Следующий запуск:</strong> ${escapeHtml(nextRun)}</div>
+                </div>
+              </section>
+            `;
           }
 
           function renderEventsByFilter(filter) {
@@ -1130,6 +1191,21 @@ def render_static_page(page_key: str) -> str:
               .map((item) => item && item.last_sent_at ? Date.parse(item.last_sent_at) : NaN)
               .filter((value) => Number.isFinite(value));
             if (!timestamps.length) return 'ещё не было';
+            const latest = new Date(Math.max(...timestamps));
+            return latest.toLocaleString('ru-RU', {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+            });
+          }
+
+          function latestNextRun(items) {
+            const timestamps = items
+              .map((item) => item && item.next_run_at ? Date.parse(item.next_run_at) : NaN)
+              .filter((value) => Number.isFinite(value));
+            if (!timestamps.length) return 'ещё не назначен';
             const latest = new Date(Math.max(...timestamps));
             return latest.toLocaleString('ru-RU', {
               year: 'numeric',
@@ -1282,6 +1358,69 @@ def render_static_page(page_key: str) -> str:
       font-weight: 750;
       cursor: pointer;
     }}
+    .monitor-summary-card {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 14px;
+      margin-top: 10px;
+      box-shadow: 0 1px 0 rgba(0,0,0,.02);
+    }}
+    .monitor-summary-head {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }}
+    .monitor-summary-kicker {{
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .02em;
+    }}
+    .monitor-summary-pill {{
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: #e8eefb;
+      color: #274879;
+      font-size: 13px;
+      font-weight: 750;
+      white-space: nowrap;
+    }}
+    .monitor-summary-grid {{
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }}
+    .monitor-summary-metric {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfa;
+      padding: 10px 12px;
+    }}
+    .monitor-summary-value {{
+      font-size: 28px;
+      font-weight: 850;
+      line-height: 1.05;
+      color: var(--ink);
+    }}
+    .monitor-summary-label {{
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+    }}
+    .monitor-summary-dates {{
+      display: grid;
+      gap: 6px;
+      margin-top: 12px;
+      color: var(--muted);
+    }}
     .monitor-export-row {{
       display: flex;
       flex-wrap: wrap;
@@ -1378,6 +1517,17 @@ def render_static_page(page_key: str) -> str:
     @media (max-width: 900px) {{
       .monitor-inline-row {{
         grid-template-columns: 1fr;
+      }}
+      .monitor-summary-grid {{
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }}
+    }}
+    @media (max-width: 560px) {{
+      .monitor-summary-grid {{
+        grid-template-columns: 1fr;
+      }}
+      .monitor-summary-head {{
+        flex-direction: column;
       }}
     }}
   </style>
