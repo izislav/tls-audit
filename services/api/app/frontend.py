@@ -1073,15 +1073,30 @@ def render_static_page(page_key: str) -> str:
                 if (days < 0) return 'истёк';
                 return `${days} дн.`;
               };
+              const getHealthClass = (item) => {
+                if (!item.confirmed) return 'warning';
+                if ((item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified) return 'warning';
+                if (!item.enabled) return 'warning';
+                return 'ok';
+              };
+              const getHealthText = (item) => {
+                if (!item.confirmed) return 'Нужно подтвердить email';
+                if ((item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified) return 'Нужно подтвердить владение';
+                if (!item.enabled) return 'Пауза';
+                return 'Всё в порядке';
+              };
               const rows = items.map((item) => `
                 <tr class="monitor-domain-row ${selectedDomainId === item.id ? 'is-selected' : ''}" data-domain-row="${item.id}">
-                  <td><strong>${item.host}</strong></td>
-                  <td>${getStatus(item)}</td>
+                  <td>
+                    <div class="monitor-domain-name">${item.host}</div>
+                    <div class="monitor-domain-meta monitor-health-${getHealthClass(item)}">${getHealthText(item)}</div>
+                  </td>
+                  <td class="monitor-status-cell monitor-health-${getHealthClass(item)}">${getStatus(item)}</td>
                   <td>${getCertificate(item)}</td>
                   <td>${formatDateShort(item.last_scan_at || item.last_sent_at)}</td>
                   <td class="monitor-actions">
-                    ${item.latest_scan_id ? `<a class="ghost-button" href="/scan?job=${encodeURIComponent(item.latest_scan_id)}" target="_blank" rel="noopener">Отчёт</a>` : ''}
-                    ${item.confirmed && item.enabled ? `<button class="btn-action btn-run" data-run-now="${item.id}" type="button">Запустить</button>` : ''}
+                    ${item.latest_scan_id ? `<a class="ghost-button" href="/scan?job=${encodeURIComponent(item.latest_scan_id)}" target="_blank" rel="noopener">Открыть отчёт</a>` : ''}
+                    ${item.confirmed && item.enabled ? `<button class="btn-action btn-run" data-run-now="${item.id}" type="button">Запустить сейчас</button>` : ''}
                     ${(item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified ? `<button class="ghost-button" type="button" data-own-verify="${item.id}">Подтвердить</button>` : ''}
                   </td>
                 </tr>
@@ -1739,6 +1754,24 @@ def render_static_page(page_key: str) -> str:
     }}
     .monitor-domain-row.is-selected td {{
       background: #eef7f5;
+    }}
+    .monitor-domain-name {{
+      font-weight: 850;
+      line-height: 1.2;
+    }}
+    .monitor-domain-meta {{
+      margin-top: 4px;
+      font-size: 13px;
+      font-weight: 700;
+    }}
+    .monitor-health-ok {{
+      color: #0f766e;
+    }}
+    .monitor-health-warning {{
+      color: #b45309;
+    }}
+    .monitor-status-cell {{
+      font-weight: 750;
     }}
     .monitor-export-row {{
       display: flex;
