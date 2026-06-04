@@ -1225,11 +1225,17 @@ def domain_to_dict(domain) -> Dict[str, object]:
 def subscription_item_to_dict(item, domain) -> Dict[str, object]:
     latest_scan_id = None
     monitored_domain_id = None
+    certificate_expires_in_days = None
+    last_scan_at = None
     if domain:
         monitored_domain_id = domain.id
+        last_scan_at = iso_or_none(getattr(domain, "last_scan_at", None))
         latest_events = monitoring_store.list_events(domain.id, limit=1)
         if latest_events:
             latest_scan_id = latest_events[0].get("scan_id")
+        latest_snapshot = monitoring_store.latest_snapshot(domain.id)
+        if latest_snapshot:
+            certificate_expires_in_days = latest_snapshot.certificate_expires_in_days
     ownership_ok = item.ownership_verified_at is not None
     pro_delivery_ready = item.plan != "support" or ownership_ok
     delivery_status = "active" if pro_delivery_ready else "paused_ownership"
@@ -1251,6 +1257,8 @@ def subscription_item_to_dict(item, domain) -> Dict[str, object]:
         "next_run_at": iso_or_none(item.next_run_at),
         "created_at": iso_or_none(item.created_at),
         "monitored_domain_id": monitored_domain_id,
+        "certificate_expires_in_days": certificate_expires_in_days,
+        "last_scan_at": last_scan_at,
         "latest_scan_id": latest_scan_id,
     }
 

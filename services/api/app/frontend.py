@@ -945,57 +945,39 @@ def render_static_page(page_key: str) -> str:
                 await loadEvents(token);
                 return;
               }
-              const planText = (value) => value === 'pro' ? 'Pro' : (value === 'support' ? 'Pro' : 'Базовый');
-              const yesNoText = (value) => value ? 'Да' : 'Нет';
-              const formatDate = (value) => {
+              const formatDateShort = (value) => {
                 if (!value) return '—';
                 const dt = new Date(value);
                 if (Number.isNaN(dt.getTime())) return value;
                 return dt.toLocaleString('ru-RU', {
-                  year: 'numeric',
-                  month: '2-digit',
                   day: '2-digit',
+                  month: '2-digit',
                   hour: '2-digit',
                   minute: '2-digit'
                 });
               };
-              const ownershipText = (item) => {
-                if (item.plan !== 'pro' && item.plan !== 'support') return 'Не требуется';
-                if (item.ownership_reused) return 'Подтверждено ранее';
-                if (item.ownership_verified) return 'Подтверждено';
-                return 'Не подтверждено (Pro paused)';
+              const getStatus = (item) => {
+                if (!item.confirmed) return 'Требует действия';
+                if ((item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified) return 'Требует действия';
+                if (!item.enabled) return 'Пауза';
+                return 'В порядке';
               };
-              const flowText = (item) => {
-                if (!item.confirmed) return '1) Подтвердите email';
-                if ((item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified) return '2) Пройдите ownership challenge';
-                if (!item.enabled) return '3) Включите подписку';
-                return '4) Запустите run now и следите за events/diff';
+              const getCertificate = (item) => {
+                const days = item.certificate_expires_in_days;
+                if (days === null || days === undefined) return '—';
+                if (days < 0) return 'истёк';
+                return `${days} дн.`;
               };
               const rows = items.map((item) => `
                 <tr>
                   <td><strong>${item.host}</strong></td>
-                  <td>${planText(item.plan)}</td>
-                  <td>${yesNoText(item.confirmed)}</td>
-                  <td>${ownershipText(item)}</td>
-                  <td>${yesNoText(item.enabled)}</td>
-                  <td>${formatDate(item.last_sent_at)}</td>
-                  <td>${formatDate(item.next_run_at)}</td>
-                  <td>${flowText(item)}</td>
+                  <td>${getStatus(item)}</td>
+                  <td>${getCertificate(item)}</td>
+                  <td>${formatDateShort(item.last_scan_at || item.last_sent_at)}</td>
                   <td class="monitor-actions">
-                    ${(item.plan === 'pro' || item.plan === 'support') && !item.pro_delivery_ready ? `<div class="muted" style="margin-bottom:6px">Отчёты и alert paused до ownership verify</div>` : ''}
-                    ${item.confirmed && item.enabled ? `<button class="btn-action btn-run" data-run-now="${item.id}" type="button">Запустить</button>` : ''}
                     ${item.latest_scan_id ? `<a class="ghost-button" href="/scan?job=${encodeURIComponent(item.latest_scan_id)}" target="_blank" rel="noopener">Отчёт</a>` : ''}
-                    ${item.latest_scan_id ? `<a class="ghost-button" href="/api/report/${encodeURIComponent(item.latest_scan_id)}/compare" target="_blank" rel="noopener">Diff JSON</a>` : ''}
-                    ${(item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified ? `
-                      <div class="ownership-row">
-                        <select class="ownership-method" data-own-method="${item.id}">
-                          <option value="dns_txt">DNS TXT</option>
-                          <option value="http_file">HTTP файл</option>
-                        </select>
-                        <button class="btn-action btn-challenge" data-own-challenge="${item.id}" type="button">Challenge</button>
-                        <button class="btn-action btn-verify" data-own-verify="${item.id}" type="button">Проверить</button>
-                      </div>
-                    ` : ''}
+                    ${item.confirmed && item.enabled ? `<button class="btn-action btn-run" data-run-now="${item.id}" type="button">Запустить</button>` : ''}
+                    ${(item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified ? `<button class="ghost-button" type="button" data-own-verify="${item.id}">Подтвердить</button>` : ''}
                   </td>
                 </tr>
               `).join('');
@@ -1003,26 +985,18 @@ def render_static_page(page_key: str) -> str:
                 <div class="monitor-table-wrap">
                 <table class="monitor-table">
                   <colgroup>
+                    <col style="width: 34%">
                     <col style="width: 18%">
-                    <col style="width: 7%">
-                    <col style="width: 10%">
-                    <col style="width: 12%">
-                    <col style="width: 7%">
-                    <col style="width: 11%">
-                    <col style="width: 11%">
+                    <col style="width: 16%">
+                    <col style="width: 18%">
                     <col style="width: 14%">
-                    <col style="width: 10%">
                   </colgroup>
                   <thead>
                     <tr>
                       <th>Домен</th>
-                      <th>План</th>
-                      <th>Подтверждено</th>
-                      <th>Владение</th>
-                      <th>Активна</th>
-                      <th>Последняя</th>
-                      <th>След. запуск</th>
-                      <th>Шаг</th>
+                      <th>Статус</th>
+                      <th>Сертификат</th>
+                      <th>Последний скан</th>
                       <th>Действия</th>
                     </tr>
                   </thead>
@@ -1046,32 +1020,6 @@ def render_static_page(page_key: str) -> str:
                     await loadEvents(token);
                   } catch (error) {
                     msg.textContent = error.message || 'Ошибка запуска.';
-                  } finally {
-                    button.disabled = false;
-                  }
-                });
-              });
-              tableBox.querySelectorAll('[data-own-challenge]').forEach((button) => {
-                button.addEventListener('click', async () => {
-                  const id = button.getAttribute('data-own-challenge');
-                  const methodInput = tableBox.querySelector('[data-own-method="' + id + '"]');
-                  const method = (methodInput && methodInput.value ? methodInput.value : 'dns_txt').trim();
-                  button.disabled = true;
-                  try {
-                    const resp = await fetch('/api/subscriptions/monitoring/' + encodeURIComponent(id) + '/ownership/challenge?token=' + token, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ method: method.trim() })
-                    });
-                    const data = await resp.json();
-                    if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось создать challenge.');
-                    if (data.method === 'dns_txt') {
-                      msg.textContent = 'DNS challenge: TXT ' + data.record_name + ' = ' + data.record_value;
-                    } else {
-                      msg.textContent = 'HTTP challenge: ' + data.file_url + ' -> ' + data.file_content;
-                    }
-                  } catch (error) {
-                    msg.textContent = error.message || 'Ошибка challenge.';
                   } finally {
                     button.disabled = false;
                   }
@@ -1620,7 +1568,7 @@ def render_static_page(page_key: str) -> str:
     .monitor-table {{
       width: 100%;
       border-collapse: collapse;
-      min-width: 1240px;
+      min-width: 860px;
       table-layout: fixed;
     }}
     .monitor-table th,
