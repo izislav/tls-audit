@@ -450,23 +450,36 @@ class PostgresMonitoringStore(NullMonitoringStore):
         monitored_domain_id: int,
         before_snapshot_id: Optional[int] = None,
     ) -> Optional[MonitoringSnapshot]:
-        with self.connect() as conn:
-            row = conn.execute(
-                """
+        monitored_domain_id = int(monitored_domain_id)
+        before_snapshot_id = None if before_snapshot_id is None else int(before_snapshot_id)
+        if before_snapshot_id is None:
+            query = """
                 SELECT id, monitored_domain_id, scan_id, grade, score,
                        certificate_not_after, certificate_expires_in_days,
                        supported_protocols, hsts, findings, created_at
                 FROM monitoring_snapshots
                 WHERE monitored_domain_id = %(monitored_domain_id)s
-                  AND (%(before_snapshot_id)s IS NULL OR id < %(before_snapshot_id)s)
                 ORDER BY id DESC
                 LIMIT 1
-                """,
-                {
-                    "monitored_domain_id": int(monitored_domain_id),
-                    "before_snapshot_id": before_snapshot_id,
-                },
-            ).fetchone()
+                """
+            params = {"monitored_domain_id": monitored_domain_id}
+        else:
+            query = """
+                SELECT id, monitored_domain_id, scan_id, grade, score,
+                       certificate_not_after, certificate_expires_in_days,
+                       supported_protocols, hsts, findings, created_at
+                FROM monitoring_snapshots
+                WHERE monitored_domain_id = %(monitored_domain_id)s
+                  AND id < %(before_snapshot_id)s
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            params = {
+                "monitored_domain_id": monitored_domain_id,
+                "before_snapshot_id": before_snapshot_id,
+            }
+        with self.connect() as conn:
+            row = conn.execute(query, params).fetchone()
         return snapshot_from_row(row) if row else None
 
     def list_snapshots(self, monitored_domain_id: int, limit: int = 20) -> List[MonitoringSnapshot]:
