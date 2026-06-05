@@ -1535,6 +1535,7 @@ def render_static_page(page_key: str) -> str:
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="{escape(page["title"])}">
   <meta name="twitter:description" content="{escape(page["description"])}">
+  __VERIFICATION_META__
   {structured_data}
   <style>
     :root {{
@@ -1976,12 +1977,34 @@ def render_static_page(page_key: str) -> str:
     </footer>
   </main>
 </body>
-</html>""".replace("{CONTACT_LINK}", CONTACT_LINK)
+</html>""".replace("{CONTACT_LINK}", CONTACT_LINK).replace("__VERIFICATION_META__", render_search_verification_meta())
 
 
 def render_text_with_contact_link(value: str) -> str:
     escaped = escape(value)
     return escaped.replace(CONTACT_EMAIL, CONTACT_LINK)
+
+
+def _verification_token(raw: str, prefixes: tuple[str, ...]) -> str:
+    token = (raw or "").strip()
+    for prefix in prefixes:
+        if token.startswith(prefix):
+            token = token[len(prefix):].strip()
+            break
+    return token
+
+
+def render_search_verification_meta() -> str:
+    metas: list[str] = []
+    if settings.yandex_verification_content:
+        token = _verification_token(settings.yandex_verification_content, ("Verification:", "yandex-verification:"))
+        if token:
+            metas.append(f'<meta name="yandex-verification" content="{escape(token)}">')
+    if settings.google_verification_content:
+        token = _verification_token(settings.google_verification_content, ("google-site-verification:",))
+        if token:
+            metas.append(f'<meta name="google-site-verification" content="{escape(token)}">')
+    return "\n  ".join(metas)
 
 
 def render_json_ld(data: dict) -> str:
@@ -2020,6 +2043,7 @@ def render_frontend(stats=None) -> str:
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="TLS Audit — проверка HTTPS и TLS-конфигурации сайта">
   <meta name="twitter:description" content="Бесплатная проверка HTTPS/TLS-конфигурации сайта с оценкой, рекомендациями и мониторингом.">
+  __VERIFICATION_META__
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -3568,4 +3592,4 @@ def render_frontend(stats=None) -> str:
     }
   </script>
 </body>
-</html>""".replace("{CONTACT_LINK}", CONTACT_LINK).replace("{SCAN_COUNTER}", scan_counter)
+</html>""".replace("{CONTACT_LINK}", CONTACT_LINK).replace("{SCAN_COUNTER}", scan_counter).replace("__VERIFICATION_META__", render_search_verification_meta())

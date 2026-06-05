@@ -1,8 +1,10 @@
 import unittest
+from unittest.mock import patch
 
 from services.api.app.frontend import (
     CONTACT_EMAIL,
     STATIC_PAGES,
+    settings as frontend_settings,
     render_frontend,
     render_static_page,
 )
@@ -111,6 +113,15 @@ class FrontendPagesTests(unittest.TestCase):
         self.assertIn("проверку SSL/TLS", html)
         self.assertIn("Базовый weekly мониторинг", html)
         self.assertIn("TLS Audit не заявляет буквальную эквивалентность SSL Labs", html)
+
+    def test_verification_meta_tags_are_rendered_when_configured(self):
+        with patch.object(frontend_settings, "yandex_verification_content", "yandex-token-123"), patch.object(
+            frontend_settings, "google_verification_content", "google-site-verification: google-token-456"
+        ):
+            html = render_frontend({"total_scans": 74, "monitored_domains": 14})
+
+        self.assertIn('<meta name="yandex-verification" content="yandex-token-123">', html)
+        self.assertIn('<meta name="google-site-verification" content="google-token-456">', html)
 
 
 if __name__ == "__main__":
