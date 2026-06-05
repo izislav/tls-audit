@@ -43,7 +43,9 @@ class FrontendPagesTests(unittest.TestCase):
                 html = render_static_page(page_key)
 
                 self.assertIn(f'<link rel="canonical" href="https://tlsaudit.ru{page["path"]}">', html)
-                self.assertIn('"@type":"TechArticle"', html)
+                self.assertIn('"@type":"WebPage"', html)
+                self.assertIn('property="og:title"', html)
+                self.assertIn('name="twitter:card"', html)
                 if page_key == "monitor-status":
                     self.assertIn("Мониторинг HTTPS и сертификатов", html)
                     self.assertIn("Email: —", html)

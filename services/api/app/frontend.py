@@ -776,10 +776,11 @@ def render_static_page(page_key: str) -> str:
     page = STATIC_PAGES[page_key]
     canonical = settings.public_base_url + page["path"]
     updated = page.get("updated", "12.05.2026")
+    seo_type = "WebPage"
     structured_data = render_json_ld(
         {
             "@context": "https://schema.org",
-            "@type": "TechArticle",
+            "@type": seo_type,
             "headline": page["title"],
             "description": page["description"],
             "url": canonical,
@@ -1525,6 +1526,15 @@ def render_static_page(page_key: str) -> str:
   <meta name="robots" content="index,follow">
   <meta name="theme-color" content="#0f766e">
   <link rel="canonical" href="{escape(canonical)}">
+  <meta property="og:type" content="article">
+  <meta property="og:locale" content="ru_RU">
+  <meta property="og:site_name" content="TLS Audit">
+  <meta property="og:title" content="{escape(page["title"])}">
+  <meta property="og:description" content="{escape(page["description"])}">
+  <meta property="og:url" content="{escape(canonical)}">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="{escape(page["title"])}">
+  <meta name="twitter:description" content="{escape(page["description"])}">
   {structured_data}
   <style>
     :root {{

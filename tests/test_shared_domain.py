@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from shared.tls_audit.recommendations import TLS12_13_ONLY
 from shared.tls_audit.archive import NullArchiveStore, create_archive_store, job_to_archive_dict
@@ -212,7 +213,18 @@ class SharedRussianTrustTests(unittest.TestCase):
         }
         report.protocols = {"items": [{"version": "TLS 1.3", "supported": True}]}
 
-        data = analyze_russian_tls(report)
+        with patch(
+            "shared.tls_audit.russian_trust.load_russian_trust_list",
+            return_value=SimpleNamespace(
+                updated_at="2026-06-05",
+                source="manual-placeholder",
+                warning="",
+                stale=False,
+                roots=[],
+                intermediates=[],
+            ),
+        ):
+            data = analyze_russian_tls(report)
 
         self.assertEqual(data["status"], "not_detected")
         self.assertFalse(data["is_russian_ca"])
