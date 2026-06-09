@@ -319,6 +319,11 @@ def sample_reports_page() -> str:
     return render_static_page("sample-reports")
 
 
+@app.get("/faq", response_class=HTMLResponse)
+def faq_page() -> str:
+    return render_static_page("faq")
+
+
 @app.get("/support", response_class=HTMLResponse)
 def support_page() -> str:
     return render_frontend(frontend_stats())
