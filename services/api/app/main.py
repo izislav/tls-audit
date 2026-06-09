@@ -29,7 +29,7 @@ from shared.tls_audit.traffic_control import AdmissionDecision
 from .archive import archive_store
 from .billing import billing_store
 from .denylist import denylist
-from .frontend import STATIC_PAGES, render_frontend, render_static_page
+from .frontend import STATIC_PAGES, page_lastmod_iso, render_frontend, render_static_page
 from .jobs import job_store
 from .monitoring import monitoring_store
 from .queue import enqueue_scan_job, queue_depth
@@ -405,15 +405,15 @@ def security_txt_root() -> str:
 @app.get("/sitemap.xml")
 def sitemap_xml() -> Response:
     today = datetime.now(timezone.utc).date().isoformat()
-    urls = [("/", "1.0"), *[(page["path"], "0.3") for page in STATIC_PAGES.values()]]
+    urls = [("/", "1.0", today), *[(page["path"], "0.3", page_lastmod_iso(page)) for page in STATIC_PAGES.values()]]
     url_items = "\n".join(
         f"""  <url>
     <loc>{settings.public_base_url}{path}</loc>
-    <lastmod>{today}</lastmod>
+    <lastmod>{lastmod}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>{priority}</priority>
   </url>"""
-        for path, priority in urls
+        for path, priority, lastmod in urls
     )
     body = f"""<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">

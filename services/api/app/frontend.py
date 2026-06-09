@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from html import escape
 
 from .settings import settings
@@ -6,6 +7,17 @@ from .settings import settings
 
 CONTACT_EMAIL = settings.contact_email
 CONTACT_LINK = f'<a href="mailto:{CONTACT_EMAIL}">{CONTACT_EMAIL}</a>'
+
+
+def page_lastmod_iso(page: dict) -> str:
+    updated = str(page.get("updated") or "").strip()
+    for pattern in ("%d.%m.%Y", "%Y-%m-%d"):
+        if updated:
+            try:
+                return datetime.strptime(updated, pattern).date().isoformat()
+            except ValueError:
+                continue
+    return datetime.now(timezone.utc).date().isoformat()
 
 
 STATIC_PAGES = {
@@ -776,22 +788,35 @@ def render_static_page(page_key: str) -> str:
     page = STATIC_PAGES[page_key]
     canonical = settings.public_base_url + page["path"]
     updated = page.get("updated", "12.05.2026")
-    seo_type = "WebPage"
+    seo_type = "FAQPage" if page_key == "faq" else "WebPage"
+    structured_data_payload = {
+        "@context": "https://schema.org",
+        "@type": seo_type,
+        "headline": page["title"],
+        "description": page["description"],
+        "url": canonical,
+        "inLanguage": "ru-RU",
+        "publisher": {
+            "@type": "Organization",
+            "name": "TLS Audit",
+            "url": settings.public_base_url + "/",
+        },
+        "dateModified": page_lastmod_iso(page),
+    }
+    if page_key == "faq":
+        structured_data_payload["mainEntity"] = [
+            {
+                "@type": "Question",
+                "name": title,
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": " ".join(items),
+                },
+            }
+            for title, items in page["sections"]
+        ]
     structured_data = render_json_ld(
-        {
-            "@context": "https://schema.org",
-            "@type": seo_type,
-            "headline": page["title"],
-            "description": page["description"],
-            "url": canonical,
-            "inLanguage": "ru-RU",
-            "publisher": {
-                "@type": "Organization",
-                "name": "TLS Audit",
-                "url": settings.public_base_url + "/",
-            },
-            "dateModified": "2026-05-25",
-        }
+        structured_data_payload
     )
     sections = ""
     if page_key != "monitor-status":

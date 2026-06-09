@@ -45,7 +45,8 @@ class FrontendPagesTests(unittest.TestCase):
                 html = render_static_page(page_key)
 
                 self.assertIn(f'<link rel="canonical" href="https://tlsaudit.ru{page["path"]}">', html)
-                self.assertIn('"@type":"WebPage"', html)
+                expected_type = "FAQPage" if page_key == "faq" else "WebPage"
+                self.assertIn(f'"@type":"{expected_type}"', html)
                 self.assertIn('property="og:title"', html)
                 self.assertIn('name="twitter:card"', html)
                 if page_key == "monitor-status":
@@ -113,6 +114,7 @@ class FrontendPagesTests(unittest.TestCase):
         self.assertIn("проверку SSL/TLS", html)
         self.assertIn("Базовый weekly мониторинг", html)
         self.assertIn("TLS Audit не заявляет буквальную эквивалентность SSL Labs", html)
+        self.assertIn('"@type":"FAQPage"', html)
 
     def test_verification_meta_tags_are_rendered_when_configured(self):
         with patch.object(frontend_settings, "yandex_verification_content", "yandex-token-123"), patch.object(
