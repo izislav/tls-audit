@@ -112,18 +112,37 @@ def unique_recommendations(findings: List[Finding]) -> List[Recommendation]:
 def explain_grade(report: Report) -> List[str]:
     if not report.findings:
         return ["Критичных замечаний не найдено."]
-    explanations = []
-    seen = set()
+    grouped_caps: Dict[str, List[str]] = {}
+    grouped_penalties: Dict[int, List[str]] = {}
     for finding in sorted_findings(report.findings):
+        title = str(finding.title or "").strip()
+        if not title:
+            continue
         if finding.grade_cap:
             cap = normalize_grade(finding.grade_cap)
-            message = f"Оценка ограничена до {cap}: {finding.title}"
-        elif finding.score_penalty or finding.severity != "info":
-            message = f"Потеря баллов ({penalty_for(finding)}): {finding.title}"
-        else:
+            bucket = grouped_caps.setdefault(cap, [])
+            if title not in bucket:
+                bucket.append(title)
             continue
-        if message in seen:
+        if finding.score_penalty or finding.severity != "info":
+            penalty = penalty_for(finding)
+            bucket = grouped_penalties.setdefault(penalty, [])
+            if title not in bucket:
+                bucket.append(title)
+
+    explanations: List[str] = []
+    for cap in GRADE_ORDER[::-1]:
+        titles = grouped_caps.get(cap)
+        if not titles:
             continue
-        seen.add(message)
-        explanations.append(message)
+        explanations.append(
+            f"Оценка ограничена до {cap}: " + "; ".join(titles)
+        )
+    for penalty in sorted(grouped_penalties.keys(), reverse=True):
+        titles = grouped_penalties[penalty]
+        if not titles:
+            continue
+        explanations.append(
+            f"Потеря баллов ({penalty}): " + "; ".join(titles)
+        )
     return explanations or ["Есть информационные рекомендации без влияния на оценку."]

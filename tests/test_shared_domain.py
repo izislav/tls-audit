@@ -43,7 +43,10 @@ class SharedScoringTests(unittest.TestCase):
         scored = score_report(report)
 
         self.assertEqual(scored.grade, "B")
-        self.assertTrue(scored.summary[0].startswith("Оценка ограничена до B"))
+        self.assertEqual(
+            scored.summary,
+            ["Оценка ограничена до B: Включён устаревший TLS"],
+        )
 
     def test_repeated_cbc_cipher_class_penalizes_once_and_caps_at_b(self) -> None:
         report = Report(host="example.ru")
@@ -64,6 +67,10 @@ class SharedScoringTests(unittest.TestCase):
 
         self.assertEqual(scored.score, 90)
         self.assertEqual(scored.grade, "B")
+        self.assertEqual(
+            scored.summary,
+            ["Оценка ограничена до B: Сервер принимает CBC cipher suite"],
+        )
 
     def test_basic_scanner_maps_cipher_caps_by_cipher_class(self) -> None:
         findings = convert_findings(
@@ -109,7 +116,10 @@ class SharedScoringTests(unittest.TestCase):
         self.assertEqual(scored.grade, "D")
         self.assertEqual(scored.score, 40)
         self.assertEqual(scored.raw["scoring"]["raw_score"], 0)
-        self.assertTrue(all("до D" in item for item in scored.summary))
+        self.assertEqual(
+            scored.summary,
+            ["Оценка ограничена до D: Legacy cap F; Legacy cap T"],
+        )
 
     def test_basic_provenance_includes_scanner_versions_and_sources(self) -> None:
         provenance = build_basic_provenance(

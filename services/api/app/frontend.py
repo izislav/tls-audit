@@ -377,7 +377,7 @@ STATIC_PAGES = {
                     "Сначала исправьте сертификат и цепочку доверия.",
                     "Потом отключите legacy TLS и опасные cipher suites.",
                     "После этого включите HSTS с тестовым max-age, проверьте сайт и только затем увеличивайте срок.",
-                    "Запустите повторную проверку в TLS Audit и смотрите разделы 'Критично' и 'Влияет на безопасность'.",
+                    "Запустите повторную проверку в TLS Audit и смотрите разделы 'Критические риски' и 'Высокие риски'.",
                 ],
             ),
         ],
@@ -2704,11 +2704,11 @@ def render_frontend(stats=None) -> str:
 
     const severityOrder = {critical: 0, high: 1, medium: 2, low: 3, info: 4};
     const severityLabels = {
-      critical: 'Критично',
-      high: 'Высокий',
-      medium: 'Средний',
-      low: 'Низкий',
-      info: 'Инфо'
+      critical: 'Критический риск',
+      high: 'Высокий риск',
+      medium: 'Средний риск',
+      low: 'Низкий риск',
+      info: 'Информация'
     };
 
     form.addEventListener('submit', async (event) => {
@@ -2955,29 +2955,29 @@ def render_frontend(stats=None) -> str:
             <div class="chips" style="margin-top:8px">
               ${renderProvenanceChips(provenanceSources)}
             </div>
-            <div style="margin-top:14px">${renderSummary(report.summary || [])}</div>
+            <div style="margin-top:14px">${renderSummary(buildSummaryFromFindings(report.findings || []))}</div>
           </div>
         </div>
 
         <section class="report-overview">
           <div class="monitor-summary-head">
             <div>
-              <div class="monitor-summary-kicker">Что важно сейчас</div>
+              <div class="monitor-summary-kicker">Сводка рисков</div>
               <h2 style="margin:4px 0 0">Быстрый взгляд на результат</h2>
             </div>
           </div>
           <div class="report-overview-grid">
             <div class="monitor-summary-metric">
               <div class="monitor-summary-value">${escapeHtml(String(findingStats.critical))}</div>
-              <div class="monitor-summary-label">критичных</div>
+              <div class="monitor-summary-label">критических рисков</div>
             </div>
             <div class="monitor-summary-metric">
               <div class="monitor-summary-value">${escapeHtml(String(findingStats.security))}</div>
-              <div class="monitor-summary-label">влияет на безопасность</div>
+              <div class="monitor-summary-label">высоких рисков</div>
             </div>
             <div class="monitor-summary-metric">
               <div class="monitor-summary-value">${escapeHtml(String(findingStats.hardening))}</div>
-              <div class="monitor-summary-label">улучшение конфигурации</div>
+              <div class="monitor-summary-label">улучшений конфигурации</div>
             </div>
             <div class="monitor-summary-metric">
               <div class="monitor-summary-value">${escapeHtml(String(findingStats.info))}</div>
@@ -2996,12 +2996,12 @@ def render_frontend(stats=None) -> str:
             ${renderEvidenceOverview(report, jobId, provenanceSources)}
           </section>
           <section class="span-6">
-            <h2>Критично</h2>
+            <h2>Критические риски</h2>
             ${renderFindings(findingBuckets.critical, 'Критичных проблем не найдено.')}
           </section>
           <section class="span-6">
-            <h2>Влияет на безопасность</h2>
-            ${renderFindings(findingBuckets.security, 'Серьёзных рисков безопасности не найдено.')}
+            <h2>Высокие риски</h2>
+            ${renderFindings(findingBuckets.security, 'Высоких рисков не найдено.')}
           </section>
           <section class="span-12">
             <h2>Улучшение конфигурации</h2>
@@ -3149,6 +3149,41 @@ def render_frontend(stats=None) -> str:
     function renderSummary(items) {
       if (!items.length) return '<p class="muted">Причины оценки пока не сформированы.</p>';
       return '<div class="list">' + items.map((item) => `<p>${escapeHtml(item)}</p>`).join('') + '</div>';
+    }
+
+    function buildSummaryFromFindings(findings) {
+      const groupedCaps = new Map();
+      const groupedPenalties = new Map();
+      for (const finding of Array.isArray(findings) ? findings : []) {
+        const title = String(finding.title || '').trim();
+        if (!title) continue;
+        if (finding.grade_cap) {
+          const cap = String(finding.grade_cap || 'D').trim().toUpperCase();
+          if (!groupedCaps.has(cap)) groupedCaps.set(cap, []);
+          const titles = groupedCaps.get(cap);
+          if (!titles.includes(title)) titles.push(title);
+          continue;
+        }
+        const severity = String(finding.severity || 'info').toLowerCase();
+        if (finding.score_penalty || severity !== 'info') {
+          const penalty = Number(finding.score_penalty || 0);
+          if (!groupedPenalties.has(penalty)) groupedPenalties.set(penalty, []);
+          const titles = groupedPenalties.get(penalty);
+          if (!titles.includes(title)) titles.push(title);
+        }
+      }
+      const lines = [];
+      for (const cap of ['D', 'C', 'B', 'A', 'A+']) {
+        const titles = groupedCaps.get(cap);
+        if (!titles || !titles.length) continue;
+        lines.push(`Оценка ограничена до ${cap}: ${titles.join('; ')}`);
+      }
+      for (const penalty of [...groupedPenalties.keys()].sort((a, b) => b - a)) {
+        const titles = groupedPenalties.get(penalty) || [];
+        if (!titles.length) continue;
+        lines.push(`Потеря баллов (${penalty}): ${titles.join('; ')}`);
+      }
+      return lines.length ? lines : ['Есть информационные рекомендации без влияния на оценку.'];
     }
 
     function renderFindings(findings, emptyMessage) {
