@@ -2940,8 +2940,9 @@ def render_frontend(stats=None) -> str:
               </div>
               <div class="actions">
                 <button type="button" id="rescan">Повторить</button>
-                <button type="button" id="print-report">Печать/PDF</button>
                 <a class="ghost-button" id="json-export" href="/api/report/${encodeURIComponent(jobId)}" target="_blank" rel="noopener">JSON</a>
+                <a class="ghost-button" id="csv-export" href="/api/report/${encodeURIComponent(jobId)}/export.csv" target="_blank" rel="noopener">CSV</a>
+                <a class="ghost-button" id="digest-export" href="/api/report/${encodeURIComponent(jobId)}/digest" target="_blank" rel="noopener">Digest API</a>
               </div>
             </div>
             <div class="chips">
@@ -3069,9 +3070,6 @@ def render_frontend(stats=None) -> str:
 		      empty.classList.add('hidden');
       document.getElementById('rescan').addEventListener('click', () => {
         startScan(report.host, report.port || 443);
-      });
-      document.getElementById('print-report').addEventListener('click', () => {
-        window.print();
       });
       loadComparison(jobId);
     }

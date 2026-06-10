@@ -53,9 +53,15 @@
 
 1. фикс правил алертов (grade drop, cert expiry, critical findings);
 2. стабилизация dedupe и retry по почтовой доставке;
-3. export-слой (CSV/JSON, затем PDF);
+3. export-слой (CSV/JSON) и стабильный digest API; PDF отложен;
 4. billing provider integration;
 5. вебхуки и публичный API-контракт.
+
+Сделано в текущей ветке:
+
+- CSV export для report/monitoring;
+- digest JSON для report API;
+- PDF не считаем обязательной частью текущего этапа.
 
 ## 7. Коммерческая рамка
 

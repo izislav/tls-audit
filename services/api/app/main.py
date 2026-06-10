@@ -44,6 +44,7 @@ from shared.tls_audit.monitoring_store import (
 from shared.tls_audit.monitoring_scheduler import schedule_domain_scan
 from shared.tls_audit.email_sender import send_email
 from shared.tls_audit.monitor_export import monitoring_export_to_csv
+from shared.tls_audit.report_export import report_digest_payload, report_digest_to_csv
 import os
 
 
@@ -615,6 +616,32 @@ def get_report(job_id: str) -> Dict[str, object]:
     if job.status != "done" or not job.report:
         raise HTTPException(status_code=409, detail="Отчёт ещё не готов.")
     return job.report
+
+
+def _report_context(job_id: str) -> tuple[Dict[str, object], Dict[str, object] | None]:
+    report = get_report(job_id)
+    scan = archive_store.get_scan(job_id) if archive_store.enabled else None
+    if not scan:
+        job = job_store.get(job_id)
+        scan = job.to_dict() if job else None
+    return report, scan
+
+
+@app.get("/api/report/{job_id}/digest")
+def report_digest(job_id: str) -> Dict[str, object]:
+    report, scan = _report_context(job_id)
+    return report_digest_payload(job_id, report, scan, settings.public_base_url)
+
+
+@app.get("/api/report/{job_id}/export.csv")
+def report_export_csv(job_id: str) -> Response:
+    report, scan = _report_context(job_id)
+    csv_text = report_digest_to_csv(job_id, report, scan, settings.public_base_url)
+    return Response(
+        content=csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="tls-audit-{job_id}.csv"'},
+    )
 
 
 @app.get("/api/report/{job_id}/compare")
