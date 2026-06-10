@@ -2992,7 +2992,7 @@ def render_frontend(stats=None) -> str:
             <div id="compare-content"></div>
           </section>
           <section class="span-12">
-            <h2>Источники проверки</h2>
+            <h2>Как мы проверяли</h2>
             ${renderEvidenceOverview(report, jobId, provenanceSources)}
           </section>
           <section class="span-6">
@@ -3301,20 +3301,20 @@ def render_frontend(stats=None) -> str:
 
     function renderEvidenceOverview(report, jobId, sources) {
       if (!Array.isArray(sources) || !sources.length) {
-        return '<p class="muted">Источник данных еще не нормализован для этого отчета.</p>';
+        return '<p class="muted">Данные проверки пока не разложены по источникам.</p>';
       }
       const shareUrl = '/scan?job=' + encodeURIComponent(jobId);
       return `
         <div class="evidence-box" style="margin-bottom:12px">
-          <p><strong>Важно:</strong> TLS Audit показывает не только итог, но и происхождение данных. Эта оценка не эквивалентна SSL Labs и должна читаться вместе с evidence и рекомендациями.</p>
+          <p><strong>Что здесь показано:</strong> откуда взялись данные отчёта и какие проверки их дали.</p>
           <p class="muted" style="margin-top:8px">Публичная ссылка на отчет: <a href="${escapeHtml(shareUrl)}">${escapeHtml(shareUrl)}</a></p>
         </div>
         <table>
-          <thead><tr><th>Источник</th><th>Статус</th><th>Версия</th><th>Время</th><th>Ключевые данные</th></tr></thead>
+          <thead><tr><th>Проверка</th><th>Состояние</th><th>Версия</th><th>Когда</th><th>Что дали</th></tr></thead>
           <tbody>
             ${sources.map((item) => `
               <tr>
-                <td>${escapeHtml(item.label || item.id || '')}</td>
+                <td>${escapeHtml(prettySourceLabel(item.id || item.label || ''))}</td>
                 <td>${sourceStatusChip(item.status)}</td>
                 <td>${escapeHtml(item.version || 'нет данных')}</td>
                 <td>${escapeHtml(formatEvidenceTime(item.scanned_at))}</td>
@@ -3343,11 +3343,11 @@ def render_frontend(stats=None) -> str:
 
     function prettySourceLabel(value) {
       const key = String(value || '');
-      if (key === 'basic_scanner') return 'Baseline scanner';
-      if (key === 'testssl') return 'testssl.sh';
-      if (key === 'dns_probe') return 'DNS probe';
-      if (key === 'openssl') return 'OpenSSL / Python SSL probe';
-      if (key === 'http_headers') return 'HTTP header probe';
+      if (key === 'basic_scanner') return 'Базовый сканер';
+      if (key === 'testssl') return 'Глубокая TLS-проверка';
+      if (key === 'dns_probe') return 'DNS-проверка';
+      if (key === 'openssl') return 'Проверка OpenSSL';
+      if (key === 'http_headers') return 'Проверка HTTP-заголовков';
       return key || 'неизвестно';
     }
 
@@ -3372,10 +3372,10 @@ def render_frontend(stats=None) -> str:
         facts.push('IP: ' + item.addresses.join(', '));
       }
       if (item.target_ip) {
-        facts.push('target IP: ' + item.target_ip);
+        facts.push('проверенный IP: ' + item.target_ip);
       }
       if (item.duration_seconds !== undefined && item.duration_seconds !== null && item.duration_seconds !== '') {
-        facts.push('duration: ' + item.duration_seconds + 's');
+        facts.push('длительность: ' + item.duration_seconds + 's');
       }
       if (item.note) {
         facts.push(item.note);

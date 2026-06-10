@@ -116,6 +116,13 @@ class FrontendPagesTests(unittest.TestCase):
         self.assertIn("TLS Audit не заявляет буквальную эквивалентность SSL Labs", html)
         self.assertIn('"@type":"FAQPage"', html)
 
+    def test_monitor_status_page_is_concise(self):
+        html = render_static_page("monitor-status")
+
+        self.assertIn("Мониторинг HTTPS и сертификатов", html)
+        self.assertNotIn("Назначение", html)
+        self.assertNotIn("Версия методики", html)
+
     def test_verification_meta_tags_are_rendered_when_configured(self):
         with patch.object(frontend_settings, "yandex_verification_content", "yandex-token-123"), patch.object(
             frontend_settings, "google_verification_content", "google-site-verification: google-token-456"
