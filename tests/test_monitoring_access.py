@@ -1,5 +1,14 @@
 import unittest
 
+try:
+    from fastapi.testclient import TestClient
+    from services.api.app import main
+    from shared.tls_audit.subscription_store import InMemorySubscriptionStore
+except ModuleNotFoundError:
+    TestClient = None
+    main = None
+    InMemorySubscriptionStore = None
+
 from shared.tls_audit.monitor_access import (
     build_monitor_token_secret,
     create_monitor_owner_token,
@@ -43,6 +52,54 @@ class MonitoringAccessTests(unittest.TestCase):
         self.assertTrue(monitoring_admin_token_valid("secret", "secret"))
         self.assertFalse(monitoring_admin_token_valid("secret", "other"))
         self.assertFalse(monitoring_admin_token_valid("", "secret"))
+
+
+@unittest.skipUnless(TestClient and main and InMemorySubscriptionStore, "fastapi test dependencies are unavailable")
+class MonitorMagicLinkTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.client = TestClient(main.app)
+        self.original_subscription_store = main.subscription_store
+        self.original_send_email = main.send_email
+        self.original_public_base_url = main.settings.public_base_url
+        self.original_smtp_url = main.os.environ.get("SMTP_URL")
+        main.subscription_store = InMemorySubscriptionStore()
+        main.subscription_store.upsert_pending(
+            host="nrdrive.ru",
+            port=443,
+            email="y.fedorov@nrdrive.ru",
+            plan="support",
+        )
+        main.settings.public_base_url = "https://tlsaudit.ru"
+        main.os.environ["SMTP_URL"] = "smtp://example"
+        self.sent_messages = []
+
+        def fake_send_email(**kwargs):
+            self.sent_messages.append(kwargs)
+            return True
+
+        main.send_email = fake_send_email
+
+    def tearDown(self) -> None:
+        main.subscription_store = self.original_subscription_store
+        main.send_email = self.original_send_email
+        main.settings.public_base_url = self.original_public_base_url
+        if self.original_smtp_url is None:
+            main.os.environ.pop("SMTP_URL", None)
+        else:
+            main.os.environ["SMTP_URL"] = self.original_smtp_url
+
+    def test_magic_link_endpoint_sends_email(self) -> None:
+        response = self.client.post(
+            "/api/subscriptions/monitoring/magic-link",
+            json={"email": "y.fedorov@nrdrive.ru"},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["status"], "sent")
+        self.assertTrue(self.sent_messages)
+        message = self.sent_messages[0]
+        self.assertEqual(message["mail_to"], "y.fedorov@nrdrive.ru")
+        self.assertIn("/monitor-status?token=", message["body"])
 
 
 if __name__ == "__main__":

@@ -844,6 +844,17 @@ def render_static_page(page_key: str) -> str:
     if page_key == "monitor-status":
         sections += """
         <section>
+          <div class="monitor-login-card">
+            <div class="monitor-summary-kicker">Вход в управление</div>
+            <h2 style="margin:4px 0 8px">Magic link по email</h2>
+            <p class="lead" style="margin-top:0">Введите email, и мы отправим ссылку для входа в панель подписок.</p>
+            <div class="monitor-login-row">
+              <input id="monitor-login-email" type="email" placeholder="you@example.ru" autocomplete="email">
+              <button id="monitor-login-submit" type="button">Отправить ссылку</button>
+            </div>
+            <div id="monitor-login-message" class="lead" style="margin-top:10px"></div>
+          </div>
+          <div id="monitor-status-panel">
           <div class="monitor-status-form">
             <input id="monitor-status-token" type="hidden" value="">
             <div class="monitor-account-head">
@@ -873,9 +884,14 @@ def render_static_page(page_key: str) -> str:
             <div id="monitor-domain-detail-box"></div>
             <div id="monitor-events-box"></div>
           </div>
+          </div>
         </section>
         <script>
         (() => {
+          const loginEmailInput = document.getElementById('monitor-login-email');
+          const loginSubmitBtn = document.getElementById('monitor-login-submit');
+          const loginMessage = document.getElementById('monitor-login-message');
+          const statusPanel = document.getElementById('monitor-status-panel');
           const tokenInput = document.getElementById('monitor-status-token');
           const ownerEmailBox = document.getElementById('monitor-owner-email');
           const addHostInput = document.getElementById('monitor-add-host');
@@ -901,6 +917,9 @@ def render_static_page(page_key: str) -> str:
           const queryToken = (params.get('token') || '').trim();
           if (queryToken) {
             tokenInput.value = queryToken;
+            if (statusPanel) statusPanel.style.display = '';
+          } else if (statusPanel) {
+            statusPanel.style.display = 'none';
           }
 
           function escapeHtml(value) {
@@ -1508,7 +1527,35 @@ def render_static_page(page_key: str) -> str:
             }
           }
 
+          async function sendMagicLink() {
+            if (!loginEmailInput || !loginMessage || !loginSubmitBtn) return;
+            const email = (loginEmailInput.value || '').trim();
+            if (!email) {
+              loginMessage.textContent = 'Укажите email.';
+              return;
+            }
+            loginSubmitBtn.disabled = true;
+            loginMessage.textContent = '';
+            try {
+              const resp = await fetch('/api/subscriptions/monitoring/magic-link', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
+              });
+              const data = await resp.json();
+              if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось отправить ссылку.');
+              loginMessage.textContent = 'Если email существует, мы отправили ссылку на вход.';
+            } catch (error) {
+              loginMessage.textContent = error.message || 'Ошибка отправки ссылки.';
+            } finally {
+              loginSubmitBtn.disabled = false;
+            }
+          }
+
           addSubmitBtn.addEventListener('click', addDomain);
+          if (loginSubmitBtn) {
+            loginSubmitBtn.addEventListener('click', sendMagicLink);
+          }
           if (openAddBtn) {
             openAddBtn.addEventListener('click', () => {
               if (addHostInput) addHostInput.focus();
@@ -1639,6 +1686,41 @@ def render_static_page(page_key: str) -> str:
       align-items: center;
       justify-content: flex-end;
       min-width: 220px;
+    }}
+    .monitor-login-card {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 14px;
+      margin-bottom: 14px;
+      box-shadow: 0 1px 0 rgba(0,0,0,.02);
+    }}
+    .monitor-login-row {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      margin-top: 12px;
+    }}
+    .monitor-login-row input,
+    .monitor-login-row button {{
+      min-height: 44px;
+      border-radius: 8px;
+      font: inherit;
+    }}
+    .monitor-login-row input {{
+      width: 100%;
+      border: 1px solid #c9cec6;
+      padding: 0 12px;
+      min-width: 0;
+    }}
+    .monitor-login-row button {{
+      border: 0;
+      background: var(--teal);
+      color: #fff;
+      font-weight: 750;
+      cursor: pointer;
+      padding: 0 16px;
+      white-space: nowrap;
     }}
     #monitor-add-plan {{
       min-width: 160px;

@@ -110,6 +110,10 @@ class OwnershipChallengeRequest(BaseModel):
     method: str = Field(default="dns_txt", min_length=3, max_length=32)
 
 
+class MagicLinkRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=254)
+
+
 def monitor_token_secret() -> str:
     return build_monitor_token_secret(
         monitoring_token_secret=settings.monitoring_token_secret,
@@ -146,6 +150,54 @@ def require_subscription_owner(subscription_id: int, token: str):
     if sub.email != normalized:
         raise HTTPException(status_code=403, detail="Недостаточно прав для этой подписки.")
     return sub
+
+
+def send_monitor_magic_link_email(email: str, manage_url: str, subscriptions_count: int) -> bool:
+    subject = "TLS Audit: вход в управление подпиской"
+    if subscriptions_count == 1:
+        count_text = "У вас сейчас 1 домен на мониторинге."
+    elif subscriptions_count > 1:
+        count_text = f"У вас сейчас {subscriptions_count} доменов на мониторинге."
+    else:
+        count_text = "У вас пока нет активных доменов на мониторинге."
+    body = (
+        "Вы запросили доступ к управлению подписками TLS Audit.\n"
+        f"{count_text}\n\n"
+        f"Открыть панель: {manage_url}\n\n"
+        "Если вы не запрашивали эту ссылку, просто игнорируйте письмо."
+    )
+    smtp_url = os.getenv("SMTP_URL", "").strip()
+    smtp_user = os.getenv("SMTP_USER", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    mail_from = os.getenv("ALERT_EMAIL_FROM", "tls-audit@localhost").strip()
+    if not smtp_url:
+        log_event(
+            logger,
+            "monitor_magic_link_email_skipped",
+            email=email,
+            reason="smtp_not_configured",
+            subject=subject,
+            body=body,
+        )
+        return False
+    try:
+        return send_email(
+            smtp_url=smtp_url,
+            smtp_user=smtp_user,
+            smtp_password=smtp_password,
+            mail_from=mail_from,
+            mail_to=email,
+            subject=subject,
+            body=body,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log_event(
+            logger,
+            "monitor_magic_link_email_failed",
+            email=email,
+            error=str(exc),
+        )
+        return False
 
 
 def ownership_http_url(host: str) -> str:
@@ -1147,6 +1199,27 @@ def begin_subscription_ownership_challenge(
             "Создайте файл по указанному URL с указанным содержимым, "
             "после чего нажмите Verify."
         ),
+    }
+
+
+@app.post("/api/subscriptions/monitoring/magic-link")
+def create_monitor_magic_link(payload: MagicLinkRequest) -> Dict[str, object]:
+    email = payload.email.strip().lower()
+    if "@" not in email or email.startswith("@") or email.endswith("@"):
+        raise HTTPException(status_code=400, detail="Укажите корректный email.")
+
+    token = create_monitor_owner_token(email)
+    manage_url = f"{settings.public_base_url}/monitor-status?token={token}"
+    subscriptions = subscription_store.list_by_email(email, limit=100)
+    sent = send_monitor_magic_link_email(email, manage_url, len(subscriptions))
+    if not sent:
+        return {
+            "status": "skipped",
+            "detail": "Ссылка не отправлена: SMTP не настроен или письмо заблокировано.",
+        }
+    return {
+        "status": "sent",
+        "detail": "Если email существует, мы отправили ссылку для входа в управление подписками.",
     }
 
 

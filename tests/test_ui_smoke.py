@@ -26,7 +26,8 @@ class UiSmokeTests(unittest.TestCase):
     def test_monitor_status_page_renders(self) -> None:
         response = self.client.get("/monitor-status")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Flow: подтвердите email", response.text)
+        self.assertIn("Magic link по email", response.text)
+        self.assertIn("Отправить ссылку", response.text)
 
 
 if __name__ == "__main__":
