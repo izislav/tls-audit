@@ -2917,13 +2917,6 @@ def render_frontend(stats=None) -> str:
       const certDays = cert.expires_in_days;
       const certChipClass = cert.expired ? 'bad' : certDays !== null && certDays !== undefined && certDays <= 30 ? 'warn' : 'good';
       const hstsChipClass = hsts.hsts ? (hsts.hsts_include_subdomains ? 'good' : 'warn') : 'bad';
-      const findingStats = {
-        critical: findingBuckets.critical.length,
-        security: findingBuckets.security.length,
-        hardening: findingBuckets.hardening.length,
-        info: findingBuckets.info.length,
-      };
-
       reportBox.innerHTML = `
       <div class="hero-status">
           <div class="grade-box ${gradeClass(report.grade)}">
@@ -2958,33 +2951,6 @@ def render_frontend(stats=None) -> str:
             <div style="margin-top:14px">${renderSummary(buildSummaryFromFindings(report.findings || []))}</div>
           </div>
         </div>
-
-        <section class="report-overview">
-          <div class="monitor-summary-head">
-            <div>
-              <div class="monitor-summary-kicker">Сводка рисков</div>
-              <h2 style="margin:4px 0 0">Быстрый взгляд на результат</h2>
-            </div>
-          </div>
-          <div class="report-overview-grid">
-            <div class="monitor-summary-metric">
-              <div class="monitor-summary-value">${escapeHtml(String(findingStats.critical))}</div>
-              <div class="monitor-summary-label">критических рисков</div>
-            </div>
-            <div class="monitor-summary-metric">
-              <div class="monitor-summary-value">${escapeHtml(String(findingStats.security))}</div>
-              <div class="monitor-summary-label">высоких рисков</div>
-            </div>
-            <div class="monitor-summary-metric">
-              <div class="monitor-summary-value">${escapeHtml(String(findingStats.hardening))}</div>
-              <div class="monitor-summary-label">улучшений конфигурации</div>
-            </div>
-            <div class="monitor-summary-metric">
-              <div class="monitor-summary-value">${escapeHtml(String(findingStats.info))}</div>
-              <div class="monitor-summary-label">информационных</div>
-            </div>
-          </div>
-        </section>
 
         <div class="grid">
           <section class="span-12 hidden" id="compare-section">
