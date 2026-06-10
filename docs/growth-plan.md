@@ -20,6 +20,7 @@
 - healthcheck + таймеры обслуживания;
 - контроль диска, очереди, давности бэкапа, срока сертификата;
 - периодическая очистка docker-cache и старых логов.
+- рабочий чеклист: `docs/prod-reliability-seo-checklist.md`.
 
 ## 3. Защита и антиабьюз
 
@@ -37,6 +38,7 @@
 - поддержка `robots.txt`/`sitemap.xml`/canonical;
 - тематические страницы (TLS/HSTS/A+/конфиги);
 - аккуратные внутренние ссылки без "мусорного" SEO.
+- рабочий чеклист: `docs/prod-reliability-seo-checklist.md`.
 
 ## 5. Monitoring Product (free + pro)
 
