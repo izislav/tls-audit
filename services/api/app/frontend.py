@@ -997,7 +997,6 @@ def render_static_page(page_key: str) -> str:
                   <div class="monitor-attention-badge">${escapeHtml(getStatus(item))}</div>
                 </div>
                 <div class="monitor-domain-detail-grid">
-                  <div><strong>План:</strong> ${escapeHtml(item.plan === 'pro' || item.plan === 'support' ? 'Pro' : 'Базовый')}</div>
                   <div><strong>Email подтверждён:</strong> ${escapeHtml(confirmEmailText)}</div>
                   <div><strong>Владение подтверждено:</strong> ${escapeHtml(ownershipText)}</div>
                   <div><strong>Мониторинг активен:</strong> ${escapeHtml(activeText)}</div>
