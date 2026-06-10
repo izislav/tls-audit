@@ -1142,9 +1142,10 @@ def render_static_page(page_key: str) -> str:
                   <td>${getCertificate(item)}</td>
                   <td>${formatDateShort(item.last_scan_at || item.last_sent_at)}</td>
                   <td class="monitor-actions">
-                    ${item.latest_scan_id ? `<a class="ghost-button" href="/scan?job=${encodeURIComponent(item.latest_scan_id)}" target="_blank" rel="noopener">Открыть отчёт</a>` : ''}
-                    ${item.confirmed && item.enabled ? `<button class="btn-action btn-run" data-run-now="${item.id}" type="button">Запустить сейчас</button>` : ''}
-                    ${(item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified ? `<button class="ghost-button" type="button" data-own-verify="${item.id}">Подтвердить</button>` : ''}
+                    ${item.latest_scan_id ? `<a class="ghost-button monitor-action-item" href="/scan?job=${encodeURIComponent(item.latest_scan_id)}" target="_blank" rel="noopener">Открыть отчёт</a>` : ''}
+                    ${item.confirmed && item.enabled ? `<button class="btn-action btn-run monitor-action-item" data-run-now="${item.id}" type="button">Запустить сейчас</button>` : ''}
+                    ${(item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified ? `<button class="ghost-button monitor-action-item" type="button" data-own-verify="${item.id}">Подтвердить</button>` : ''}
+                    ${item.token ? `<button class="ghost-button monitor-action-item" type="button" data-delete-url="/api/subscriptions/monitoring/${encodeURIComponent(item.id)}?token=${encodeURIComponent(item.token)}" data-delete-host="${escapeHtml(item.host || '')}">Удалить</button>` : ''}
                   </td>
                 </tr>
               `).join('');
@@ -1152,11 +1153,11 @@ def render_static_page(page_key: str) -> str:
                 <div class="monitor-table-wrap">
                 <table class="monitor-table">
                   <colgroup>
-                    <col style="width: 34%">
-                    <col style="width: 18%">
-                    <col style="width: 16%">
-                    <col style="width: 18%">
-                    <col style="width: 14%">
+                    <col style="width: 31%">
+                    <col style="width: 17%">
+                    <col style="width: 15%">
+                    <col style="width: 15%">
+                    <col style="width: 22%">
                   </colgroup>
                   <thead>
                     <tr>
@@ -1216,6 +1217,27 @@ def render_static_page(page_key: str) -> str:
                     await loadStatus();
                   } catch (error) {
                     msg.textContent = error.message || 'Ошибка verify.';
+                  } finally {
+                    button.disabled = false;
+                  }
+                });
+              });
+              tableBox.querySelectorAll('[data-delete-url]').forEach((button) => {
+                button.addEventListener('click', async () => {
+                  const url = button.getAttribute('data-delete-url');
+                  const host = button.getAttribute('data-delete-host') || 'подписку';
+                  if (!url) return;
+                  if (!window.confirm('Удалить подписку ' + host + '?')) return;
+                  button.disabled = true;
+                  try {
+                    const resp = await fetch(url, { method: 'DELETE' });
+                    const data = await resp.json();
+                    if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось удалить подписку.');
+                    msg.textContent = 'Подписка отключена.';
+                    selectedDomainId = null;
+                    await loadStatus();
+                  } catch (error) {
+                    msg.textContent = error.message || 'Ошибка удаления.';
                   } finally {
                     button.disabled = false;
                   }
@@ -1968,7 +1990,17 @@ def render_static_page(page_key: str) -> str:
       line-height: 1.15;
     }}
     .monitor-actions {{
-      min-width: 300px;
+      min-width: 340px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: flex-start;
+    }}
+    .monitor-actions .ghost-button,
+    .monitor-actions .btn-action {{
+      margin: 0;
+      flex: 0 0 auto;
+      white-space: nowrap;
     }}
     .recommendation-summary-list {{
       display: grid;
