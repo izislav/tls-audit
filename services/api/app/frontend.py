@@ -768,18 +768,10 @@ STATIC_PAGES = {
     },
     "monitor-status": {
         "title": "Статус подписок",
-        "description": "Приватная страница управления подпиской мониторинга по защищенной ссылке из письма.",
+        "description": "Мониторинг HTTPS и сертификатов.",
         "path": "/monitor-status",
         "version": "0.2",
-        "sections": [
-            (
-                "Назначение",
-                [
-                    "Страница показывает состояние подписок по защищенной ссылке управления.",
-                    "Используйте её для проверки статуса, просмотра следующего запуска и ручного запуска проверки.",
-                ],
-            ),
-        ],
+        "sections": [],
     },
 }
 
@@ -1534,9 +1526,7 @@ def render_static_page(page_key: str) -> str:
     header_description = page["description"]
     header_meta = ""
     header_back = '<a class="back" href="/">Вернуться к проверке</a>'
-    if page_key == "methodology":
-        header_meta = f'<p class="lead">Версия методики: {escape(str(page.get("version", "0.1")))}. Последнее обновление: {escape(updated)}.</p>'
-    elif page_key == "monitor-status":
+    if page_key == "monitor-status":
         header_description = "Мониторинг HTTPS и сертификатов"
         header_back = ""
     elif page_key == "ssl-certificate-check":
@@ -1702,6 +1692,20 @@ def render_static_page(page_key: str) -> str:
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 10px;
+    }}
+    .report-overview {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 14px;
+      margin-top: 12px;
+      box-shadow: 0 1px 0 rgba(0,0,0,.02);
+    }}
+    .report-overview-grid {{
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
     }}
     .monitor-summary-metric {{
       border: 1px solid var(--line);
@@ -1869,7 +1873,7 @@ def render_static_page(page_key: str) -> str:
       text-align: left;
       vertical-align: top;
       white-space: normal;
-      overflow-wrap: anywhere;
+      overflow-wrap: break-word;
       word-break: normal;
       hyphens: none;
     }}
@@ -1884,6 +1888,38 @@ def render_static_page(page_key: str) -> str:
     }}
     .monitor-actions {{
       min-width: 300px;
+    }}
+    .recommendation-summary-list {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 8px;
+    }}
+    .recommendation-summary-card {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 12px;
+    }}
+    .recommendation-summary-card h3 {{
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.25;
+    }}
+    .recommendation-summary-card p {{
+      margin-top: 8px;
+      color: var(--ink);
+    }}
+    .recommendation-summary-fix {{
+      color: var(--muted);
+    }}
+    .recommendations-details {{
+      margin-top: 12px;
+    }}
+    .recommendations-details summary {{
+      cursor: pointer;
+      font-weight: 750;
+      color: var(--teal-dark);
     }}
     .ownership-row {{
       display: flex;
@@ -1955,9 +1991,18 @@ def render_static_page(page_key: str) -> str:
       .monitor-summary-grid {{
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }}
+      .report-overview-grid {{
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }}
+      .recommendation-summary-list {{
+        grid-template-columns: 1fr;
+      }}
     }}
     @media (max-width: 560px) {{
       .monitor-summary-grid {{
+        grid-template-columns: 1fr;
+      }}
+      .report-overview-grid {{
         grid-template-columns: 1fr;
       }}
       .monitor-summary-head {{
@@ -2873,6 +2918,12 @@ def render_frontend(stats=None) -> str:
       const certDays = cert.expires_in_days;
       const certChipClass = cert.expired ? 'bad' : certDays !== null && certDays !== undefined && certDays <= 30 ? 'warn' : 'good';
       const hstsChipClass = hsts.hsts ? (hsts.hsts_include_subdomains ? 'good' : 'warn') : 'bad';
+      const findingStats = {
+        critical: findingBuckets.critical.length,
+        security: findingBuckets.security.length,
+        hardening: findingBuckets.hardening.length,
+        info: findingBuckets.info.length,
+      };
 
       reportBox.innerHTML = `
       <div class="hero-status">
@@ -2908,6 +2959,33 @@ def render_frontend(stats=None) -> str:
           </div>
         </div>
 
+        <section class="report-overview">
+          <div class="monitor-summary-head">
+            <div>
+              <div class="monitor-summary-kicker">Что важно сейчас</div>
+              <h2 style="margin:4px 0 0">Быстрый взгляд на результат</h2>
+            </div>
+          </div>
+          <div class="report-overview-grid">
+            <div class="monitor-summary-metric">
+              <div class="monitor-summary-value">${escapeHtml(String(findingStats.critical))}</div>
+              <div class="monitor-summary-label">критичных</div>
+            </div>
+            <div class="monitor-summary-metric">
+              <div class="monitor-summary-value">${escapeHtml(String(findingStats.security))}</div>
+              <div class="monitor-summary-label">влияет на безопасность</div>
+            </div>
+            <div class="monitor-summary-metric">
+              <div class="monitor-summary-value">${escapeHtml(String(findingStats.hardening))}</div>
+              <div class="monitor-summary-label">улучшение конфигурации</div>
+            </div>
+            <div class="monitor-summary-metric">
+              <div class="monitor-summary-value">${escapeHtml(String(findingStats.info))}</div>
+              <div class="monitor-summary-label">информационных</div>
+            </div>
+          </div>
+        </section>
+
         <div class="grid">
           <section class="span-12 hidden" id="compare-section">
             <h2>Было/стало</h2>
@@ -2930,7 +3008,7 @@ def render_frontend(stats=None) -> str:
             ${renderFindings(findingBuckets.hardening, 'Обязательных улучшений конфигурации нет.')}
           </section>
           <section class="span-12">
-            <h2>Готовые рекомендации</h2>
+            <h2>Что исправить первым</h2>
             ${renderRecommendations(recommendations)}
           </section>
           <section class="span-12">
@@ -3320,6 +3398,16 @@ def render_frontend(stats=None) -> str:
         .sort((a, b) => (levelOrder[a.level] ?? 9) - (levelOrder[b.level] ?? 9));
       const top = normalized.slice(0, 3);
       const rest = normalized.slice(3);
+      const renderSummaryCard = (item) => `
+        <article class="recommendation-summary-card">
+          <div class="finding-head">
+            <h3>${escapeHtml(item.title || item.code)}</h3>
+            <span class="severity">${escapeHtml((item.level || 'info').toUpperCase())}</span>
+          </div>
+          <p>${escapeHtml(item.risk || '')}</p>
+          <p class="recommendation-summary-fix"><strong>Что сделать:</strong> ${escapeHtml(item.fix || '')}</p>
+        </article>
+      `;
       const renderCard = (item) => `
         <article class="finding">
           <div class="finding-head">
@@ -3335,13 +3423,13 @@ def render_frontend(stats=None) -> str:
           </div>
         </article>
       `;
-      const topHtml = '<div class="recommendation-list">' + top.map(renderCard).join('') + '</div>';
-      if (!rest.length) return topHtml;
-      const restHtml = '<div class="recommendation-list">' + rest.map(renderCard).join('') + '</div>';
+      const topHtml = '<div class="recommendation-summary-list">' + top.map(renderSummaryCard).join('') + '</div>';
+      const detailsLabel = rest.length ? `Показать подробные примеры и конфиги (${normalized.length})` : 'Показать подробные примеры и конфиги';
+      const detailsHtml = '<div class="recommendation-list">' + normalized.map(renderCard).join('') + '</div>';
       return topHtml + `
-        <details style="margin-top:10px">
-          <summary>Показать ещё (${rest.length})</summary>
-          <div style="margin-top:10px">${restHtml}</div>
+        <details class="recommendations-details">
+          <summary>${escapeHtml(detailsLabel)}</summary>
+          <div style="margin-top:10px">${detailsHtml}</div>
         </details>
       `;
     }

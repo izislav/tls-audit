@@ -149,6 +149,7 @@ class WorkerMonitoringTests(unittest.TestCase):
             worker.send_subscription_report(job, report, diff)
         body = send_email.call_args.kwargs["body"]
         self.assertIn("Security status digest", body)
+        self.assertIn("Статус безопасности: есть изменения, требуется внимание", body)
         self.assertIn("Критические изменения:", body)
         self.assertIn("Оценка стала ниже", body)
         self.assertIn("Добавлены важные риски: A", body)
@@ -156,6 +157,35 @@ class WorkerMonitoringTests(unittest.TestCase):
         self.assertIn("Открыть подробный TLS-отчёт:", body)
         mark_sent.assert_called_once_with(7)
         mark_report_sent.assert_called_once_with(7, "job-1")
+
+    def test_send_subscription_report_without_changes_uses_soft_status(self) -> None:
+        job = {
+            "id": "job-3",
+            "host": "example.ru",
+            "port": 443,
+            "subscription_id": 9,
+            "subscription_email": "admin@example.ru",
+            "subscription_plan": "support",
+        }
+        report = {"grade": "A", "score": 95, "summary": ["Стабильная конфигурация"], "findings": []}
+        diff = MonitoringDiff()
+        with patch.object(worker, "send_email", return_value=True) as send_email, patch.object(
+            worker.subscription_store, "mark_sent"
+        ), patch.object(
+            worker.subscription_store, "should_send_report", return_value=True
+        ), patch.object(
+            worker, "ownership_verified", return_value=True
+        ), patch.object(
+            worker.subscription_store, "mark_report_sent"
+        ), patch.dict(
+            os.environ,
+            {"SMTP_URL": "smtps://example:465", "PUBLIC_BASE_URL": "http://127.0.0.1:8000"},
+            clear=False,
+        ):
+            worker.send_subscription_report(job, report, diff)
+        body = send_email.call_args.kwargs["body"]
+        self.assertIn("Статус безопасности: без новых рисков", body)
+        self.assertIn("За последнюю неделю мы не обнаружили:", body)
 
     def test_send_subscription_report_free_plan_is_concise(self) -> None:
         job = {

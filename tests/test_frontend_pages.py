@@ -102,10 +102,10 @@ class FrontendPagesTests(unittest.TestCase):
     def test_methodology_page_has_version_and_matrix(self):
         html = render_static_page("methodology")
 
-        self.assertIn("Версия методики: 0.2", html)
         self.assertIn("Ключевые группы проверок", html)
         self.assertIn("Что не покрывается", html)
         self.assertIn("testssl.sh", html)
+        self.assertNotIn("Версия методики:", html)
 
     def test_faq_page_has_search_intent_and_free_value(self):
         html = render_static_page("faq")

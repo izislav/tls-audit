@@ -271,7 +271,7 @@ def send_subscription_report(
     summary = report.get("summary") or []
     top = summary[0] if isinstance(summary, list) and summary else "Отчёт сформирован."
     actions_now = top_actions_summary(report, limit=2)
-    subject = f"TLS Audit: Security status digest {host} — {grade}"
+    subject = f"TLS Audit: еженедельный статус {host} — {grade}"
     if plan == "support":
         manage_url, _unsubscribe_url = subscription_links(
             subscription_id=subscription_id,
@@ -280,14 +280,14 @@ def send_subscription_report(
         )
         has_public_report_link = bool(SCAN_ID_RE.match(job_id))
         critical_changes = format_critical_changes(monitoring_diff)
-        critical_changes_status = "нет" if not critical_changes.strip() else "есть"
         cert_soft_status = (
             f"{cert_days_value} дней"
             if cert_days_value is not None and cert_days_value >= 0
             else cert_status
         )
         good_checks = good_checks_block(report)
-        status_line = "Статус безопасности: всё стабильно" if not critical_changes.strip() else "Статус безопасности: есть изменения, требуется внимание"
+        status_line = "Статус безопасности: без новых рисков" if not critical_changes.strip() else "Статус безопасности: есть изменения, требуется внимание"
+        quick_summary = top_actions_summary(report, limit=2)
         body = (
             "TLS Audit Pro — Security status digest\n"
             "\n"
@@ -308,8 +308,8 @@ def send_subscription_report(
             + (f"\nКритические изменения:\n{critical_changes}\n" if critical_changes else "")
             + (
                 "\n────────────────────────────\n\n"
-                f"Что можно улучшить\n\n{actions_now}\n"
-                if actions_now
+                f"Что можно улучшить\n\n{quick_summary or actions_now}\n"
+                if (quick_summary or actions_now)
                 else ""
             )
             + (
@@ -323,7 +323,7 @@ def send_subscription_report(
             + (f"{report_link}\n" if has_public_report_link else f"{manage_url}\n")
             + "\n(рекомендации, конфиги и история изменений)\n"
             + "\n────────────────────────────\n\n"
-            + "Настройки мониторинга и управление подпиской:\n"
+            + "Настройки мониторинга:\n"
             + f"{manage_url}\n"
         )
     else:
