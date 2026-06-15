@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 try:
     from services.api.app import main
@@ -69,6 +70,41 @@ class MonitoringDigestTests(unittest.TestCase):
         with patch.object(main, "build_monitoring_export_payload", return_value=export_payload):
             digest = main.build_monitoring_digest_payload("admin@example.ru", "token-2", 20, 20)
         self.assertEqual(digest["items"][0]["delivery_status"], "paused_ownership")
+
+    def test_build_monitoring_export_payload_skips_disabled_subscriptions(self) -> None:
+        subs = [
+            SimpleNamespace(
+                id=1,
+                host="active.ru",
+                port=443,
+                plan="free",
+                enabled=True,
+                confirmed=True,
+                ownership_method=None,
+                ownership_verified_at=None,
+                last_sent_at=None,
+                next_run_at=None,
+            ),
+            SimpleNamespace(
+                id=2,
+                host="disabled.ru",
+                port=443,
+                plan="free",
+                enabled=False,
+                confirmed=True,
+                ownership_method=None,
+                ownership_verified_at=None,
+                last_sent_at=None,
+                next_run_at=None,
+            ),
+        ]
+        domain = SimpleNamespace(id=10, host="active.ru", port=443)
+        with patch.object(main.subscription_store, "list_by_email", return_value=subs), patch.object(
+            main.monitoring_store, "list_domains", return_value=[domain]
+        ):
+            payload = main.build_monitoring_export_payload("admin@example.ru", "token-3", 20, 20)
+
+        self.assertEqual([item["host"] for item in payload["items"]], ["active.ru"])
 
 
 if __name__ == "__main__":

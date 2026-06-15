@@ -1003,6 +1003,8 @@ def list_monitor_subscription_events(token: str, limit: int = 30) -> Dict[str, o
     per_domain_limit = max(1, min(10, limit))
     result_items = []
     for sub in items:
+        if not getattr(sub, "enabled", True):
+            continue
         domain = domain_map.get((sub.host, int(sub.port)))
         events: list[dict[str, object]] = []
         if domain:
@@ -1417,6 +1419,8 @@ def build_monitoring_export_payload(
     per_domain_limit = max(1, min(50, int(events_limit)))
     export_items: List[Dict[str, object]] = []
     for sub in items:
+        if not getattr(sub, "enabled", True):
+            continue
         domain = domain_map.get((sub.host, int(sub.port)))
         events: List[Dict[str, object]] = []
         if domain:
