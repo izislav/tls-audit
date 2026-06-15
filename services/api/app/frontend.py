@@ -1102,13 +1102,14 @@ def render_static_page(page_key: str) -> str:
               const planLabel = (value) => value === 'pro' || value === 'support' ? 'Pro' : 'Базовый';
               if (addPlanSelect) addPlanSelect.value = data.plan === 'pro' ? 'support' : 'free';
               const items = Array.isArray(data.items) ? data.items : [];
+              const activeItems = items.filter((item) => item && item.enabled !== false);
               lastStatusData = data;
-              lastStatusItems = items;
+              lastStatusItems = activeItems;
               renderSummary();
               renderAttention(manageToken);
               msg.textContent = '';
-              if (!items.length) {
-                tableBox.innerHTML = '<p class="lead" style="margin-top:0">Подписок не найдено.</p>';
+              if (!activeItems.length) {
+                tableBox.innerHTML = '<p class="lead" style="margin-top:0">Активных подписок не найдено.</p>';
                 await loadEvents(token);
                 return;
               }
@@ -1135,7 +1136,7 @@ def render_static_page(page_key: str) -> str:
                 if (!item.enabled) return 'Пауза';
                 return 'Всё в порядке';
               };
-              const rows = items.map((item) => `
+              const rows = activeItems.map((item) => `
                 <tr class="monitor-domain-row ${selectedDomainId === item.id ? 'is-selected' : ''}" data-domain-row="${item.id}">
                   <td>
                     <div class="monitor-domain-name">${item.host}</div>
@@ -1176,7 +1177,7 @@ def render_static_page(page_key: str) -> str:
                 row.addEventListener('click', () => {
                   const id = Number(row.getAttribute('data-domain-row'));
                   selectedDomainId = id;
-                  const selected = items.find((entry) => entry.id === id);
+                  const selected = activeItems.find((entry) => entry.id === id);
                   renderDomainDetail(selected, manageToken);
                   tableBox.querySelectorAll('.monitor-domain-row').forEach((itemRow) => itemRow.classList.remove('is-selected'));
                   row.classList.add('is-selected');
@@ -1296,7 +1297,7 @@ def render_static_page(page_key: str) -> str:
                   }
                 });
               });
-              const selected = selectedDomainId ? items.find((entry) => entry.id === selectedDomainId) : items[0];
+              const selected = selectedDomainId ? activeItems.find((entry) => entry.id === selectedDomainId) : activeItems[0];
               renderDomainDetail(selected, manageToken);
               await loadEvents(manageToken);
             } catch (error) {
