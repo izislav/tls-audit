@@ -1000,7 +1000,7 @@ def render_static_page(page_key: str) -> str:
               return;
             }
             const reportUrl = item.latest_scan_id ? '/scan?job=' + encodeURIComponent(item.latest_scan_id) : '';
-            const deleteUrl = item.token ? '/api/subscriptions/monitoring/' + encodeURIComponent(item.id) + '?token=' + encodeURIComponent(item.token) : '';
+            const deleteUrl = token ? '/api/subscriptions/monitoring/' + encodeURIComponent(item.id) + '?token=' + encodeURIComponent(token) : '';
             const confirmEmailText = item.confirmed ? 'да' : 'нет';
             const ownershipText = (item.plan === 'pro' || item.plan === 'support')
               ? (item.ownership_verified ? 'да' : 'нет')
@@ -1145,7 +1145,7 @@ def render_static_page(page_key: str) -> str:
                     ${item.latest_scan_id ? `<a class="ghost-button monitor-action-item" href="/scan?job=${encodeURIComponent(item.latest_scan_id)}" target="_blank" rel="noopener">Открыть отчёт</a>` : ''}
                     ${item.confirmed && item.enabled ? `<button class="btn-action btn-run monitor-action-item" data-run-now="${item.id}" type="button">Запустить сейчас</button>` : ''}
                     ${(item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified ? `<button class="ghost-button monitor-action-item" type="button" data-own-verify="${item.id}">Подтвердить</button>` : ''}
-                    ${item.token ? `<button class="ghost-button monitor-action-item" type="button" data-delete-url="/api/subscriptions/monitoring/${encodeURIComponent(item.id)}?token=${encodeURIComponent(item.token)}" data-delete-host="${escapeHtml(item.host || '')}">Удалить</button>` : ''}
+                    ${token ? `<button class="ghost-button monitor-action-item" type="button" data-delete-url="/api/subscriptions/monitoring/${encodeURIComponent(item.id)}?token=${encodeURIComponent(token)}" data-delete-host="${escapeHtml(item.host || '')}">Удалить</button>` : ''}
                   </td>
                 </tr>
               `).join('');
@@ -1391,7 +1391,7 @@ def render_static_page(page_key: str) -> str:
             }
             const cards = active.map((item) => {
               const label = item.plan === 'pro' || item.plan === 'support' ? 'Pro' : 'Базовый';
-              const deleteUrl = item.token ? '/api/subscriptions/monitoring/' + encodeURIComponent(item.id) + '?token=' + encodeURIComponent(item.token) : '';
+              const deleteUrl = token ? '/api/subscriptions/monitoring/' + encodeURIComponent(item.id) + '?token=' + encodeURIComponent(token) : '';
               const needsOwnership = (item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified;
               return `
                 <article class="monitor-attention-item ${needsOwnership ? 'monitor-attention-item--warning' : ''}">
