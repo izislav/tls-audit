@@ -1140,7 +1140,6 @@ def render_static_page(page_key: str) -> str:
                   </td>
                   <td class="monitor-status-cell monitor-health-${getHealthClass(item)}">${getStatus(item)}</td>
                   <td>${getCertificate(item)}</td>
-                  <td>${formatDateShort(item.last_scan_at || item.last_sent_at)}</td>
                   <td class="monitor-actions">
                     ${item.latest_scan_id ? `<a class="ghost-button monitor-action-item" href="/scan?job=${encodeURIComponent(item.latest_scan_id)}" target="_blank" rel="noopener">Открыть отчёт</a>` : ''}
                     ${item.confirmed && item.enabled ? `<button class="btn-action btn-run monitor-action-item" data-run-now="${item.id}" type="button">Запустить сейчас</button>` : ''}
@@ -1153,18 +1152,16 @@ def render_static_page(page_key: str) -> str:
                 <div class="monitor-table-wrap">
                 <table class="monitor-table">
                   <colgroup>
-                    <col style="width: 31%">
+                    <col style="width: 36%">
+                    <col style="width: 18%">
                     <col style="width: 17%">
-                    <col style="width: 15%">
-                    <col style="width: 15%">
-                    <col style="width: 22%">
+                    <col style="width: 29%">
                   </colgroup>
                   <thead>
                     <tr>
                       <th>Домен</th>
                       <th>Статус</th>
                       <th>Сертификат</th>
-                      <th>Последний скан</th>
                       <th>Действия</th>
                     </tr>
                   </thead>
