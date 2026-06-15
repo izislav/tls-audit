@@ -1069,6 +1069,7 @@ def render_static_page(page_key: str) -> str:
                   const data = await resp.json();
                   if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось удалить подписку.');
                   msg.textContent = 'Подписка отключена.';
+                  detailBox.innerHTML = '';
                   selectedDomainId = null;
                   await loadStatus();
                 } catch (error) {
@@ -1235,6 +1236,8 @@ def render_static_page(page_key: str) -> str:
                     const data = await resp.json();
                     if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось удалить подписку.');
                     msg.textContent = 'Подписка отключена.';
+                    const row = button.closest('tr');
+                    if (row) row.remove();
                     selectedDomainId = null;
                     await loadStatus();
                   } catch (error) {
@@ -1289,6 +1292,8 @@ def render_static_page(page_key: str) -> str:
                     const data = await resp.json();
                     if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось удалить подписку.');
                     msg.textContent = 'Подписка отключена.';
+                    const card = button.closest('.monitor-attention-item');
+                    if (card) card.remove();
                     await loadStatus();
                   } catch (error) {
                     msg.textContent = error.message || 'Ошибка удаления.';
