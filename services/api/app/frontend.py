@@ -888,6 +888,7 @@ def render_static_page(page_key: str) -> str:
         </section>
         <script>
         (() => {
+          const loginCard = document.querySelector('.monitor-login-card');
           const loginEmailInput = document.getElementById('monitor-login-email');
           const loginSubmitBtn = document.getElementById('monitor-login-submit');
           const loginMessage = document.getElementById('monitor-login-message');
@@ -917,6 +918,7 @@ def render_static_page(page_key: str) -> str:
           const queryToken = (params.get('token') || '').trim();
           if (queryToken) {
             tokenInput.value = queryToken;
+            if (loginCard) loginCard.style.display = 'none';
             if (statusPanel) statusPanel.style.display = '';
           } else if (statusPanel) {
             statusPanel.style.display = 'none';
@@ -1083,8 +1085,9 @@ def render_static_page(page_key: str) -> str:
             tableBox.innerHTML = '';
             eventsBox.innerHTML = '';
             try {
-              const token = encodeURIComponent((tokenInput.value || '').trim());
-              if (!token) throw new Error('Откройте страницу по ссылке из письма управления подпиской.');
+              const manageToken = (tokenInput.value || '').trim();
+              if (!manageToken) throw new Error('Откройте страницу по ссылке из письма управления подпиской.');
+              const token = encodeURIComponent(manageToken);
               if (exportJson && exportCsv) {
                 exportJson.href = '/api/subscriptions/monitoring/export.json?token=' + token;
                 exportCsv.href = '/api/subscriptions/monitoring/export.csv?token=' + token;
@@ -1102,7 +1105,7 @@ def render_static_page(page_key: str) -> str:
               lastStatusData = data;
               lastStatusItems = items;
               renderSummary();
-              renderAttention();
+              renderAttention(manageToken);
               msg.textContent = '';
               if (!items.length) {
                 tableBox.innerHTML = '<p class="lead" style="margin-top:0">Подписок не найдено.</p>';
@@ -1174,7 +1177,7 @@ def render_static_page(page_key: str) -> str:
                   const id = Number(row.getAttribute('data-domain-row'));
                   selectedDomainId = id;
                   const selected = items.find((entry) => entry.id === id);
-                  renderDomainDetail(selected, token);
+                  renderDomainDetail(selected, manageToken);
                   tableBox.querySelectorAll('.monitor-domain-row').forEach((itemRow) => itemRow.classList.remove('is-selected'));
                   row.classList.add('is-selected');
                 });
@@ -1192,7 +1195,7 @@ def render_static_page(page_key: str) -> str:
                       throw new Error((runData && runData.detail) || 'Не удалось запустить проверку.');
                     }
                     msg.textContent = 'Ручная проверка поставлена в очередь.';
-                    await loadEvents(token);
+                    await loadEvents(manageToken);
                   } catch (error) {
                     msg.textContent = error.message || 'Ошибка запуска.';
                   } finally {
@@ -1294,8 +1297,8 @@ def render_static_page(page_key: str) -> str:
                 });
               });
               const selected = selectedDomainId ? items.find((entry) => entry.id === selectedDomainId) : items[0];
-              renderDomainDetail(selected, token);
-              await loadEvents(token);
+              renderDomainDetail(selected, manageToken);
+              await loadEvents(manageToken);
             } catch (error) {
               msg.textContent = error.message || 'Ошибка загрузки.';
             }
@@ -1369,7 +1372,7 @@ def render_static_page(page_key: str) -> str:
             `;
           }
 
-          function renderAttention() {
+          function renderAttention(manageToken) {
             const items = Array.isArray(lastStatusItems) ? lastStatusItems : [];
             const active = items.filter(isActionRequired);
             if (!active.length) {
@@ -1388,7 +1391,7 @@ def render_static_page(page_key: str) -> str:
             }
             const cards = active.map((item) => {
               const label = item.plan === 'pro' || item.plan === 'support' ? 'Pro' : 'Базовый';
-              const deleteUrl = token ? '/api/subscriptions/monitoring/' + encodeURIComponent(item.id) + '?token=' + encodeURIComponent(token) : '';
+              const deleteUrl = manageToken ? '/api/subscriptions/monitoring/' + encodeURIComponent(item.id) + '?token=' + encodeURIComponent(manageToken) : '';
               const needsOwnership = (item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified;
               return `
                 <article class="monitor-attention-item ${needsOwnership ? 'monitor-attention-item--warning' : ''}">
