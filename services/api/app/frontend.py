@@ -2302,8 +2302,27 @@ def render_frontend(stats=None) -> str:
     .subscription-cta-row {
       grid-column: 1 / -1;
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 8px;
+    }
+    .secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+      font-weight: 750;
+      text-decoration: none;
+      cursor: pointer;
+      white-space: nowrap;
+      padding: 0 14px;
+    }
+    .secondary:hover {
+      background: #f7f8f4;
     }
     label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
     input, button {
@@ -2697,6 +2716,7 @@ def render_frontend(stats=None) -> str:
         <div class="subscription-cta-row">
           <button id="open-subscribe-free" type="button" class="secondary">Базовый мониторинг</button>
           <button id="open-subscribe-support" type="button" class="secondary">TLS Audit Pro</button>
+          <a href="/monitor-status" class="secondary">Мои подписки</a>
         </div>
       </form>
     </header>
