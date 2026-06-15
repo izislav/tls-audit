@@ -1907,6 +1907,14 @@ def render_static_page(page_key: str) -> str:
       gap: 8px;
       margin-top: 12px;
     }}
+    .monitor-attention-actions .ghost-button,
+    .monitor-domain-detail-actions .ghost-button {{
+      width: auto;
+      max-width: 100%;
+      min-width: 0;
+      flex: 0 0 auto;
+      white-space: nowrap;
+    }}
     .monitor-domain-detail {{
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -1996,16 +2004,20 @@ def render_static_page(page_key: str) -> str:
       line-height: 1.15;
     }}
     .monitor-actions {{
-      min-width: 340px;
+      min-width: 0;
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
       align-items: flex-start;
+      justify-content: flex-end;
     }}
     .monitor-actions .ghost-button,
     .monitor-actions .btn-action {{
       margin: 0;
       flex: 0 0 auto;
+      width: auto;
+      max-width: 100%;
+      min-width: 0;
       white-space: nowrap;
     }}
     .recommendation-summary-list {{
