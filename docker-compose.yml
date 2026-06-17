@@ -30,6 +30,8 @@ services:
       SMTP_URL: ${SMTP_URL:-}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MONITORING_TOKEN_SECRET: ${MONITORING_TOKEN_SECRET:-}
+      MONITORING_ADMIN_TOKEN: ${MONITORING_ADMIN_TOKEN:-}
     ports:
       - "${API_BIND_HOST:-0.0.0.0}:8000:8000"
     depends_on:
@@ -66,6 +68,7 @@ services:
       SMTP_URL: ${SMTP_URL:-}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MONITORING_TOKEN_SECRET: ${MONITORING_TOKEN_SECRET:-}
     depends_on:
       redis:
         condition: service_healthy
