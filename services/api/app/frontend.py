@@ -2781,7 +2781,7 @@ def render_frontend(stats=None) -> str:
             <div class="compare-card">
               <div class="compare-label">Глубина</div>
               <div class="compare-value">HTTPS-аудит</div>
-              <p class="muted" style="margin-top:6px">118 проверок: сертификат, TLS 1.2/1.3, HSTS, OCSP, cipher suites и распространённые проблемы безопасности.</p>
+              <p class="muted" style="margin-top:6px">Комплексный HTTPS-аудит: сертификат, TLS-протоколы, cipher suites, HSTS, OCSP и распространённые проблемы безопасности.</p>
             </div>
             <div class="compare-card">
               <div class="compare-label">Рекомендации</div>
@@ -2795,18 +2795,18 @@ def render_frontend(stats=None) -> str:
             </div>
             <div class="compare-card">
               <div class="compare-label">Бесплатно</div>
-              <div class="compare-value">Без регистрации</div>
+              <div class="compare-value">Без аккаунта</div>
               <p class="muted" style="margin-top:6px">Проверка домена доступна сразу. Для мониторинга нужен только email.</p>
             </div>
             <div class="compare-card">
-              <div class="compare-label">Какие проблемы решает TLS Audit</div>
-              <div class="compare-value">Когда нужен сервис</div>
+              <div class="compare-label">Сценарии</div>
+              <div class="compare-value">Когда пригодится</div>
               <p class="muted" style="margin-top:6px">Сертификат скоро закончится; после изменений на сервере что-то сломалось; много доменов и сложно следить вручную; нужен быстрый ответ «всё нормально или нет».</p>
             </div>
             <div class="compare-card">
               <div class="compare-label">Для кого</div>
-              <div class="compare-value">Подходит</div>
-              <p class="muted" style="margin-top:6px">Системным администраторам; DevOps и SRE; веб-студиям и агентствам; владельцам сайтов и сервисов.</p>
+              <div class="compare-value">Для команд и владельцев</div>
+              <p class="muted" style="margin-top:6px">Системным администраторам, DevOps и SRE, веб-студиям, агентствам и владельцам сайтов.</p>
             </div>
           </div>
 		    </div>

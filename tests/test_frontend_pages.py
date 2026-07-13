@@ -34,8 +34,9 @@ class FrontendPagesTests(unittest.TestCase):
         self.assertIn("Политика данных", html)
         self.assertIn(f"mailto:{CONTACT_EMAIL}", html)
         self.assertIn("HTTPS-аудит", html)
-        self.assertIn("118 проверок", html)
-        self.assertIn("Без регистрации", html)
+        self.assertIn("Комплексный HTTPS-аудит", html)
+        self.assertNotIn("118 проверок", html)
+        self.assertIn("Без аккаунта", html)
         self.assertIn("Уже проверено: 74 сканов", html)
         self.assertIn("14 доменов на мониторинге", html)
 
