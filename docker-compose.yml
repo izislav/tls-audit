@@ -1,9 +1,16 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   api:
     build:
       context: .
       dockerfile: deploy/Dockerfile.api
     restart: unless-stopped
+    logging: *default-logging
     init: true
     read_only: true
     tmpfs:
@@ -64,6 +71,7 @@ services:
       context: .
       dockerfile: deploy/Dockerfile.worker
     restart: unless-stopped
+    logging: *default-logging
     init: true
     read_only: true
     tmpfs:
@@ -109,6 +117,7 @@ services:
       dockerfile: deploy/Dockerfile.api
     command: ["python", "-m", "services.scheduler.scheduler"]
     restart: unless-stopped
+    logging: *default-logging
     init: true
     read_only: true
     tmpfs:
@@ -151,6 +160,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *default-logging
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis-data:/data
@@ -163,6 +173,7 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-tls_audit}
       POSTGRES_USER: ${POSTGRES_USER:-tls_audit}
