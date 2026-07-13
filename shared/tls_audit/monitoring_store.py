@@ -143,7 +143,9 @@ class InMemoryMonitoringStore(NullMonitoringStore):
         due = [
             domain
             for domain in self.domains.values()
-            if domain.enabled and (domain.next_scan_at is None or domain.next_scan_at <= now)
+            if domain.enabled
+            and not str(domain.notes or "").startswith("subscription:")
+            and (domain.next_scan_at is None or domain.next_scan_at <= now)
         ]
         return sorted(due, key=lambda item: item.next_scan_at or now)[: max(1, limit)]
 
@@ -312,6 +314,7 @@ class PostgresMonitoringStore(NullMonitoringStore):
                        last_scan_at, next_scan_at, notes
                 FROM monitored_domains
                 WHERE enabled = true
+                  AND notes NOT LIKE 'subscription:%%'
                   AND next_scan_at <= coalesce(%s, now())
                 ORDER BY next_scan_at ASC
                 LIMIT %s

@@ -45,6 +45,9 @@ class NullArchiveStore:
             "top_findings": [],
         }
 
+    def lifetime_scan_count(self) -> int:
+        return 0
+
 
 class PostgresArchiveStore:
     enabled = True
@@ -59,6 +62,10 @@ class PostgresArchiveStore:
 
     def create_scan(self, job: JobRecord) -> None:
         with self.connect() as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM scans WHERE id = %s",
+                (job.id,),
+            ).fetchone()
             conn.execute(
                 """
                 INSERT INTO scans (
@@ -82,6 +89,15 @@ class PostgresArchiveStore:
                 """,
                 self.scan_payload(job),
             )
+            if not existing:
+                conn.execute(
+                    """
+                    INSERT INTO site_counters (name, value)
+                    VALUES ('scans_total', 1)
+                    ON CONFLICT (name) DO UPDATE
+                    SET value = site_counters.value + 1
+                    """
+                )
 
     def update_scan(self, job: JobRecord) -> None:
         with self.connect() as conn:
@@ -348,6 +364,16 @@ class PostgresArchiveStore:
             "top_findings": [dict(row) for row in finding_rows],
             "slowest_scans": [dict(row) for row in slow_rows],
         }
+
+    def lifetime_scan_count(self) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM site_counters WHERE name = 'scans_total'"
+            ).fetchone()
+            if row:
+                return int(row["value"] or 0)
+            fallback = conn.execute("SELECT count(*) AS count FROM scans").fetchone()
+        return int(fallback["count"] or 0) if fallback else 0
 
     def connect(self):
         import psycopg

@@ -4,7 +4,13 @@ from unittest.mock import patch
 from shared.tls_audit.jobs import InMemoryJobStore
 from shared.tls_audit.monitoring_scheduler import schedule_due_scans
 from shared.tls_audit.monitoring_store import InMemoryMonitoringStore
+from shared.tls_audit.subscription_store import InMemorySubscriptionStore
 from shared.tls_audit.traffic_control import TargetScanGuard
+
+try:
+    from services.scheduler import scheduler
+except ModuleNotFoundError:
+    scheduler = None
 
 
 class MonitoringSchedulerTests(unittest.TestCase):
@@ -103,6 +109,60 @@ class MonitoringSchedulerTests(unittest.TestCase):
         self.assertEqual(job_store.jobs, {})
         decision = guard.reserve("example.ru", 443, "second-job")
         self.assertTrue(decision.allowed)
+
+    def test_subscription_owned_domain_is_not_scheduled_by_legacy_loop(self) -> None:
+        monitoring_store = InMemoryMonitoringStore()
+        monitoring_store.upsert_domain(
+            "example.ru",
+            notes="subscription:admin@example.ru",
+        )
+
+        self.assertEqual(monitoring_store.due_domains(), [])
+
+
+@unittest.skipUnless(scheduler, "scheduler dependencies are unavailable")
+class SubscriptionDomainReconciliationTests(unittest.TestCase):
+    def test_orphan_subscription_domain_is_disabled(self) -> None:
+        monitoring_store = InMemoryMonitoringStore()
+        domain = monitoring_store.upsert_domain(
+            "example.ru",
+            notes="subscription:admin@example.ru",
+        )
+        subscription_store = InMemorySubscriptionStore()
+
+        with patch.object(scheduler, "monitoring_store", monitoring_store), patch.object(
+            scheduler,
+            "subscription_store",
+            subscription_store,
+        ):
+            disabled = scheduler.reconcile_subscription_domains()
+
+        self.assertEqual(disabled, 1)
+        self.assertFalse(monitoring_store.get_domain(domain.id).enabled)
+
+    def test_active_subscription_domain_remains_enabled(self) -> None:
+        monitoring_store = InMemoryMonitoringStore()
+        domain = monitoring_store.upsert_domain(
+            "example.ru",
+            notes="subscription:admin@example.ru",
+        )
+        subscription_store = InMemorySubscriptionStore()
+        subscription = subscription_store.upsert_pending(
+            "example.ru",
+            443,
+            "admin@example.ru",
+        )
+        subscription_store.confirm(subscription.token)
+
+        with patch.object(scheduler, "monitoring_store", monitoring_store), patch.object(
+            scheduler,
+            "subscription_store",
+            subscription_store,
+        ):
+            disabled = scheduler.reconcile_subscription_domains()
+
+        self.assertEqual(disabled, 0)
+        self.assertTrue(monitoring_store.get_domain(domain.id).enabled)
 
 
 if __name__ == "__main__":

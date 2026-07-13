@@ -94,6 +94,11 @@ class WorkerMonitoringTests(unittest.TestCase):
             )
 
         self.assertEqual(result["status"], "done")
+        run_full_scan.assert_called_once()
+        self.assertEqual(
+            run_full_scan.call_args.kwargs["expected_addresses"],
+            ["93.184.216.34"],
+        )
         archive_store.save_report.assert_called()
         self.assertTrue(send_email.called)
         bodies = [call.kwargs.get("body", "") for call in send_email.call_args_list]

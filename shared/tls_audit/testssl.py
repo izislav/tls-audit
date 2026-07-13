@@ -51,6 +51,7 @@ def run_testssl_scan(
     port: int = 443,
     timeout_seconds: int = TESTSSL_TIMEOUT_SECONDS,
     progress_callback: Optional[Callable[[int, str, str], None]] = None,
+    ip_address: Optional[str] = None,
 ) -> Dict[str, Any]:
     command = shutil.which(TESTSSL_COMMAND)
     if not command:
@@ -76,6 +77,10 @@ def run_testssl_scan(
             "--color",
             "0",
             "--ids-friendly",
+        ]
+        if ip_address:
+            args.extend(["--ip", ip_address])
+        args.extend([
             "-S",
             "-p",
             "-E",
@@ -83,7 +88,7 @@ def run_testssl_scan(
             "--jsonfile-pretty",
             json_path,
             target,
-        ]
+        ])
         process = subprocess.Popen(
             args,
             cwd=workdir,

@@ -4,12 +4,17 @@ from dataclasses import dataclass
 
 @dataclass
 class Settings:
+    environment: str = os.getenv("APP_ENV", "development").strip().lower()
     public_base_url: str = os.getenv("PUBLIC_BASE_URL", "https://tlsaudit.ru").rstrip("/")
     redis_url: str = os.getenv("REDIS_URL", "")
     database_url: str = os.getenv("DATABASE_URL", "")
     scan_queue_name: str = os.getenv("SCAN_QUEUE_NAME", "tls-audit:scan-jobs")
     max_scan_seconds: int = int(os.getenv("MAX_SCAN_SECONDS", "45"))
     rate_limit_per_minute: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "20"))
+    monitoring_rate_limit: int = int(os.getenv("MONITORING_RATE_LIMIT", "30"))
+    monitoring_rate_window_seconds: int = int(os.getenv("MONITORING_RATE_WINDOW_SECONDS", "600"))
+    email_rate_limit: int = int(os.getenv("EMAIL_RATE_LIMIT", "5"))
+    email_rate_window_seconds: int = int(os.getenv("EMAIL_RATE_WINDOW_SECONDS", "900"))
     captcha_after_per_minute: int = int(os.getenv("CAPTCHA_AFTER_PER_MINUTE", "15"))
     target_cooldown_seconds: int = int(os.getenv("TARGET_COOLDOWN_SECONDS", "30"))
     active_scan_ttl_seconds: int = int(os.getenv("ACTIVE_SCAN_TTL_SECONDS", "900"))
@@ -26,6 +31,11 @@ class Settings:
     contact_email: str = os.getenv("CONTACT_EMAIL", "info@tlsaudit.ru").strip()
     monitoring_token_secret: str = os.getenv("MONITORING_TOKEN_SECRET", "").strip()
     monitoring_admin_token: str = os.getenv("MONITORING_ADMIN_TOKEN", "").strip()
+    monitoring_token_ttl_seconds: int = int(os.getenv("MONITORING_TOKEN_TTL_SECONDS", "86400"))
+
+    @property
+    def production(self) -> bool:
+        return self.environment == "production"
 
 
 settings = Settings()

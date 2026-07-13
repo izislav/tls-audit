@@ -9,7 +9,7 @@ It scans a public hostname and builds a report with:
 - provenance/evidence for scanner conclusions.
 
 The service does not claim one-to-one SSL Labs equivalence.
-Current methodology version is `0.2`.
+Current methodology version is `0.2`; current service release is `0.2.1`.
 
 ## Current Product State
 
@@ -21,17 +21,19 @@ Implemented:
 - scanner worker with baseline Python probes and `testssl.sh`;
 - report provenance block (scanner sources, versions, scan metadata);
 - monitoring subscriptions (`free` and `pro` flow);
-- private subscription management by signed owner token;
+- private subscription management by signed, expiring owner token;
 - ownership verification flow for `pro` subscriptions (DNS TXT or HTTP file challenge);
 - Russian TLS/GOCT compatibility block separated from global grade.
 
 Security controls:
 
-- SSRF and DNS rebinding protection;
+- SSRF and DNS rebinding protection with connections pinned to validated IP addresses;
 - private/local/service targets blocked;
-- requester rate limits and queue depth guard;
+- separate scan, monitoring, and email rate limits plus queue depth guard;
 - per-target active lock and cooldown;
 - scanner time limits.
+- production containers run read-only as a non-root user;
+- readiness checks cover PostgreSQL, Redis, worker, and scheduler.
 
 ## Local Run
 
@@ -39,7 +41,7 @@ Start stack:
 
 ```bash
 docker-compose up --build -d
-curl -s http://127.0.0.1:8000/health
+curl -s http://127.0.0.1:8000/health/ready
 ```
 
 Open:
@@ -81,6 +83,7 @@ Monitoring subscriptions:
 
 ## Documentation
 
-- Deploy: [DEPLOY.md](/Users/urij/Documents/New project/deploy/DEPLOY.md)
-- Work plan `0.2`: [work-plan.md](/Users/urij/Documents/New project/docs/work-plan.md)
-- Roadmap: [roadmap.md](/Users/urij/Documents/New project/docs/roadmap.md)
+- Deploy: [DEPLOY.md](deploy/DEPLOY.md)
+- Work plan `0.2`: [work-plan.md](docs/work-plan.md)
+- Roadmap: [roadmap.md](docs/roadmap.md)
+- Current state: [v0.2-status.md](docs/v0.2-status.md)

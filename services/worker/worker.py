@@ -66,6 +66,7 @@ def handle_job(job: Dict[str, object]) -> Dict[str, object]:
         report = run_full_scan(
             target.host,
             target.port,
+            expected_addresses=target.addresses,
             progress_callback=lambda percent, stage, detail: update_progress(
                 job_id, percent, stage, detail
             ),
@@ -941,6 +942,7 @@ def subscription_links(subscription_id: int, email: str, public_base_url: str) -
         redis_url=os.getenv("REDIS_URL", ""),
         public_base_url=os.getenv("PUBLIC_BASE_URL", "https://tlsaudit.ru"),
         contact_email=os.getenv("CONTACT_EMAIL", "info@tlsaudit.ru"),
+        require_explicit=os.getenv("APP_ENV", "development").strip().lower() == "production",
     )
     owner_token = create_monitor_owner_token(email, owner_secret)
     if owner_token:
@@ -962,6 +964,7 @@ def owner_digest_json_url(email: str, public_base_url: str) -> str:
         redis_url=os.getenv("REDIS_URL", ""),
         public_base_url=os.getenv("PUBLIC_BASE_URL", "https://tlsaudit.ru"),
         contact_email=os.getenv("CONTACT_EMAIL", "info@tlsaudit.ru"),
+        require_explicit=os.getenv("APP_ENV", "development").strip().lower() == "production",
     )
     owner_token = create_monitor_owner_token(email, owner_secret)
     return f"{public_base_url}/api/subscriptions/monitoring/digest.json?token={owner_token}"
@@ -1012,7 +1015,11 @@ def run_redis_worker() -> None:
     client = redis.from_url(REDIS_URL)
     print(f"TLS Audit worker listening on Redis queue {QUEUE_NAME}")
     while True:
-        _queue, payload = client.blpop(QUEUE_NAME)
+        client.set("tls-audit:worker:heartbeat", str(time.time()), ex=60)
+        queued = client.blpop(QUEUE_NAME, timeout=10)
+        if not queued:
+            continue
+        _queue, payload = queued
         job = json.loads(payload)
         handle_job(job)
 

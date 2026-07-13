@@ -2,16 +2,24 @@ FROM python:3.12-slim
 
 WORKDIR /app
 ENV PYTHONPATH=/app
+ENV PYTHONDONTWRITEBYTECODE=1
 ENV PIP_DEFAULT_TIMEOUT=120
 ENV PIP_RETRIES=10
 
 COPY requirements/api.txt /app/requirements/api.txt
-RUN pip install --no-cache-dir --retries 10 --timeout 120 -r /app/requirements/api.txt
+RUN python -m pip install --no-cache-dir --upgrade pip==26.1.2 \
+    && pip install --no-cache-dir --retries 10 --timeout 120 -r /app/requirements/api.txt
 
 COPY data /app/data
 COPY shared /app/shared
 COPY services/api /app/services/api
 COPY services/scheduler /app/services/scheduler
 COPY tls_guard /app/tls_guard
+
+RUN chmod -R a+rX /app \
+    && groupadd --system tlsaudit \
+    && useradd --system --gid tlsaudit --home-dir /app --shell /usr/sbin/nologin tlsaudit
+
+USER tlsaudit
 
 CMD ["uvicorn", "services.api.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

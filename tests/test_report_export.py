@@ -86,6 +86,15 @@ class ReportExportTests(unittest.TestCase):
         self.assertNotIn("findings", digest)
         self.assertIn("/api/report/scan-1/export.csv", digest["links"]["csv"])
 
+    def test_report_digest_groups_duplicate_findings(self) -> None:
+        self.report["findings"].append(dict(self.report["findings"][0]))
+
+        digest = report_digest_payload("scan-1", self.report, self.scan, "https://tlsaudit.ru")
+
+        self.assertEqual(digest["severity_counts"]["medium"], 3)
+        self.assertEqual(len(digest["top_findings"]), 2)
+        self.assertEqual(digest["top_findings"][0]["count"], 2)
+
     def test_report_export_csv_contains_digest_fields(self) -> None:
         csv_text = report_digest_to_csv("scan-1", self.report, self.scan, "https://tlsaudit.ru")
 

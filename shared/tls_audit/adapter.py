@@ -26,9 +26,14 @@ def run_basic_scan(
     host: str,
     port: int = 443,
     progress_callback: Optional[Callable[[int, str, str], None]] = None,
+    expected_addresses: Optional[List[str]] = None,
 ) -> Report:
     target = host if port == 443 else f"{host}:{port}"
-    basic = scan_host(target, progress_callback=progress_callback)
+    basic = scan_host(
+        target,
+        progress_callback=progress_callback,
+        expected_addresses=expected_addresses,
+    )
     return normalize_basic_result(basic.to_dict())
 
 
@@ -36,13 +41,25 @@ def run_full_scan(
     host: str,
     port: int = 443,
     progress_callback: Optional[Callable[[int, str, str], None]] = None,
+    expected_addresses: Optional[List[str]] = None,
 ) -> Report:
     def basic_progress(percent: int, stage: str, detail: str) -> None:
         if progress_callback:
             progress_callback(min(85, int(percent * 0.85)), stage, detail)
 
-    report = run_basic_scan(host, port, progress_callback=basic_progress)
-    testssl_result = run_testssl_scan(host, port, progress_callback=progress_callback)
+    report = run_basic_scan(
+        host,
+        port,
+        progress_callback=basic_progress,
+        expected_addresses=expected_addresses,
+    )
+    pinned_address = expected_addresses[0] if expected_addresses else None
+    testssl_result = run_testssl_scan(
+        host,
+        port,
+        progress_callback=progress_callback,
+        ip_address=pinned_address,
+    )
     if progress_callback:
         progress_callback(97, "scoring", "Объединяем результаты и считаем оценку")
     return merge_testssl_result(report, testssl_result)

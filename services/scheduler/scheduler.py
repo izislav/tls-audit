@@ -1,7 +1,6 @@
 import logging
 import os
 import time
-from datetime import timezone
 from typing import Callable, Optional
 
 from services.api.app.jobs import job_store
@@ -38,6 +37,8 @@ def positive_int(value: Optional[str], default: int) -> int:
 
 def run_once(limit: Optional[int] = None) -> SchedulerResult:
     batch_size = limit or get_batch_size()
+    write_scheduler_heartbeat()
+    reconcile_subscription_domains()
     result = schedule_due_scans(
         monitoring_store=monitoring_store,
         job_store=job_store,
@@ -55,6 +56,29 @@ def run_once(limit: Optional[int] = None) -> SchedulerResult:
     )
     process_subscriptions(limit=batch_size)
     return result
+
+
+def write_scheduler_heartbeat() -> None:
+    client = getattr(job_store, "client", None)
+    if client is not None:
+        client.set("tls-audit:scheduler:heartbeat", str(time.time()), ex=1800)
+
+
+def reconcile_subscription_domains() -> int:
+    if not getattr(monitoring_store, "enabled", False):
+        return 0
+    disabled = 0
+    for domain in monitoring_store.list_domains(limit=1000):
+        if not str(domain.notes or "").startswith("subscription:"):
+            continue
+        if subscription_store.active_for_target(domain.host, domain.port):
+            continue
+        if domain.enabled:
+            monitoring_store.update_domain(domain.id, enabled=False)
+            disabled += 1
+    if disabled:
+        log_event(logger, "orphan_subscription_domains_disabled", count=disabled)
+    return disabled
 
 
 def process_subscriptions(limit: int) -> None:

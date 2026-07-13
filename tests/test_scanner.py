@@ -86,15 +86,23 @@ class GradingTests(unittest.TestCase):
 
 
 class ProgressTests(unittest.TestCase):
+    def test_scan_refuses_dns_rebinding_after_queueing(self) -> None:
+        with patch.object(scanner, "resolve_addresses", return_value=["93.184.216.34"]):
+            with self.assertRaisesRegex(ValueError, "DNS changed"):
+                scanner.scan_host(
+                    "example.com",
+                    expected_addresses=["93.184.216.35"],
+                )
+
     def test_scan_host_reports_progress(self) -> None:
         events = []
 
-        def fake_protocol(host, port, name, version, timeout):
+        def fake_protocol(host, port, name, version, timeout, **_kwargs):
             supported = name in {"TLS 1.2", "TLS 1.3"}
             cipher = "TLS_AES_128_GCM_SHA256" if supported else None
             return ProtocolCheck(name, supported, cipher)
 
-        def fake_cipher(host, port, cipher_name, issue, timeout):
+        def fake_cipher(host, port, cipher_name, issue, timeout, **_kwargs):
             return CipherProbe(cipher_name, "TLS 1.2", False, issue)
 
         with patch.object(scanner, "resolve_addresses", return_value=["93.184.216.34"]), \

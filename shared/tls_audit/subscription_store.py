@@ -50,7 +50,7 @@ class NullSubscriptionStore:
             next_run_at=next_weekly_report_at(utcnow()),
         )
 
-    def confirm(self, token: str) -> Optional[MonitorSubscription]:
+    def confirm(self, token: str, max_age_seconds: int = 86400) -> Optional[MonitorSubscription]:
         return None
 
     def disable(self, token: str) -> Optional[MonitorSubscription]:
@@ -69,6 +69,12 @@ class NullSubscriptionStore:
         return []
 
     def active_confirmed_count(self) -> int:
+        return 0
+
+    def active_for_target(self, host: str, port: int) -> bool:
+        return False
+
+    def cleanup_unconfirmed(self, max_age_hours: int = 48) -> int:
         return 0
 
     def begin_ownership_verification(
@@ -179,10 +185,12 @@ class InMemorySubscriptionStore(NullSubscriptionStore):
         self.items[sub.id] = sub
         return sub
 
-    def confirm(self, token: str) -> Optional[MonitorSubscription]:
+    def confirm(self, token: str, max_age_seconds: int = 86400) -> Optional[MonitorSubscription]:
         now = utcnow()
         for item in self.items.values():
-            if item.token == token and item.enabled:
+            updated_at = item.updated_at or item.created_at or now
+            age_seconds = (now - updated_at).total_seconds()
+            if item.token == token and item.enabled and age_seconds <= max(1, int(max_age_seconds)):
                 item.confirmed = True
                 item.updated_at = now
                 return item
@@ -221,6 +229,23 @@ class InMemorySubscriptionStore(NullSubscriptionStore):
 
     def active_confirmed_count(self) -> int:
         return sum(1 for item in self.items.values() if item.enabled and item.confirmed)
+
+    def active_for_target(self, host: str, port: int) -> bool:
+        return any(
+            item.enabled and item.confirmed and item.host == host and item.port == int(port)
+            for item in self.items.values()
+        )
+
+    def cleanup_unconfirmed(self, max_age_hours: int = 48) -> int:
+        cutoff = utcnow() - timedelta(hours=max(1, int(max_age_hours)))
+        stale_ids = [
+            item.id
+            for item in self.items.values()
+            if not item.confirmed and (item.updated_at or item.created_at or cutoff) <= cutoff
+        ]
+        for item_id in stale_ids:
+            self.items.pop(item_id, None)
+        return len(stale_ids)
 
     def begin_ownership_verification(
         self,
@@ -375,16 +400,17 @@ class PostgresSubscriptionStore(NullSubscriptionStore):
             ).fetchone()
         return subscription_from_row(row)
 
-    def confirm(self, token: str) -> Optional[MonitorSubscription]:
+    def confirm(self, token: str, max_age_seconds: int = 86400) -> Optional[MonitorSubscription]:
         with self.connect() as conn:
             row = conn.execute(
                 """
                 UPDATE monitor_subscriptions
                 SET confirmed = true
                 WHERE token = %(token)s AND enabled = true
+                  AND updated_at >= now() - (%(max_age_seconds)s * interval '1 second')
                 RETURNING *
                 """,
-                {"token": token},
+                {"token": token, "max_age_seconds": max(1, int(max_age_seconds))},
             ).fetchone()
         return subscription_from_row(row) if row else None
 
@@ -460,6 +486,36 @@ class PostgresSubscriptionStore(NullSubscriptionStore):
                 WHERE enabled = true
                   AND confirmed = true
                 """
+            ).fetchone()
+        return int(row["count"] or 0) if row else 0
+
+    def active_for_target(self, host: str, port: int) -> bool:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM monitor_subscriptions
+                    WHERE host = %(host)s AND port = %(port)s
+                      AND enabled = true AND confirmed = true
+                ) AS active
+                """,
+                {"host": host, "port": int(port)},
+            ).fetchone()
+        return bool(row and row["active"])
+
+    def cleanup_unconfirmed(self, max_age_hours: int = 48) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                WITH deleted AS (
+                    DELETE FROM monitor_subscriptions
+                    WHERE confirmed = false
+                      AND updated_at < now() - (%(max_age_hours)s * interval '1 hour')
+                    RETURNING id
+                )
+                SELECT count(*) AS count FROM deleted
+                """,
+                {"max_age_hours": max(1, int(max_age_hours))},
             ).fetchone()
         return int(row["count"] or 0) if row else 0
 

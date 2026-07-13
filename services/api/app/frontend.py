@@ -933,6 +933,10 @@ def render_static_page(page_key: str) -> str:
               .replace(/'/g, '&#39;');
           }
 
+          function apiToken(rawToken) {
+            return encodeURIComponent(String(rawToken || '').trim());
+          }
+
           function isActionRequired(item) {
             if (!item) return false;
             if (!item.confirmed) return true;
@@ -1002,7 +1006,8 @@ def render_static_page(page_key: str) -> str:
               return;
             }
             const reportUrl = item.latest_scan_id ? '/scan?job=' + encodeURIComponent(item.latest_scan_id) : '';
-            const deleteUrl = token ? '/api/subscriptions/monitoring/' + encodeURIComponent(item.id) + '?token=' + encodeURIComponent(token) : '';
+            const encodedToken = apiToken(token);
+            const deleteUrl = encodedToken ? '/api/subscriptions/monitoring/' + encodeURIComponent(item.id) + '?token=' + encodedToken : '';
             const confirmEmailText = item.confirmed ? 'да' : 'нет';
             const ownershipText = (item.plan === 'pro' || item.plan === 'support')
               ? (item.ownership_verified ? 'да' : 'нет')
@@ -1037,7 +1042,7 @@ def render_static_page(page_key: str) -> str:
                 const id = button.getAttribute('data-detail-run');
                 button.disabled = true;
                 try {
-                  const resp = await fetch('/api/subscriptions/monitoring/' + encodeURIComponent(id) + '/run-now?token=' + token, {
+                  const resp = await fetch('/api/subscriptions/monitoring/' + encodeURIComponent(id) + '/run-now?token=' + encodedToken, {
                     method: 'POST'
                   });
                   const runData = await resp.json();
@@ -1088,7 +1093,7 @@ def render_static_page(page_key: str) -> str:
             try {
               const manageToken = (tokenInput.value || '').trim();
               if (!manageToken) throw new Error('Откройте страницу по ссылке из письма управления подпиской.');
-              const token = encodeURIComponent(manageToken);
+              const token = apiToken(manageToken);
               if (exportJson && exportCsv) {
                 exportJson.href = '/api/subscriptions/monitoring/export.json?token=' + token;
                 exportCsv.href = '/api/subscriptions/monitoring/export.csv?token=' + token;
@@ -1111,7 +1116,7 @@ def render_static_page(page_key: str) -> str:
               msg.textContent = '';
               if (!activeItems.length) {
                 tableBox.innerHTML = '<p class="lead" style="margin-top:0">Активных подписок не найдено.</p>';
-                await loadEvents(token);
+                await loadEvents(manageToken);
                 return;
               }
               const formatDateShort = (value) => {
@@ -1140,16 +1145,16 @@ def render_static_page(page_key: str) -> str:
               const rows = activeItems.map((item) => `
                 <tr class="monitor-domain-row ${selectedDomainId === item.id ? 'is-selected' : ''}" data-domain-row="${item.id}">
                   <td>
-                    <div class="monitor-domain-name">${item.host}</div>
-                    <div class="monitor-domain-meta monitor-health-${getHealthClass(item)}">${getHealthText(item)}</div>
+                    <div class="monitor-domain-name">${escapeHtml(item.host || '—')}</div>
+                    <div class="monitor-domain-meta monitor-health-${getHealthClass(item)}">${escapeHtml(getHealthText(item))}</div>
                   </td>
-                  <td class="monitor-status-cell monitor-health-${getHealthClass(item)}">${getStatus(item)}</td>
-                  <td>${getCertificate(item)}</td>
+                  <td class="monitor-status-cell monitor-health-${getHealthClass(item)}">${escapeHtml(getStatus(item))}</td>
+                  <td>${escapeHtml(getCertificate(item))}</td>
                   <td class="monitor-actions">
                     ${item.latest_scan_id ? `<a class="ghost-button monitor-action-item" href="/scan?job=${encodeURIComponent(item.latest_scan_id)}" target="_blank" rel="noopener">Открыть отчёт</a>` : ''}
                     ${item.confirmed && item.enabled ? `<button class="btn-action btn-run monitor-action-item" data-run-now="${item.id}" type="button">Запустить сейчас</button>` : ''}
                     ${(item.plan === 'pro' || item.plan === 'support') && !item.ownership_verified ? `<button class="ghost-button monitor-action-item" type="button" data-own-verify="${item.id}">Подтвердить</button>` : ''}
-                    ${token ? `<button class="ghost-button monitor-action-item" type="button" data-delete-url="/api/subscriptions/monitoring/${encodeURIComponent(item.id)}?token=${encodeURIComponent(token)}" data-delete-host="${escapeHtml(item.host || '')}">Удалить</button>` : ''}
+                    ${token ? `<button class="ghost-button monitor-action-item" type="button" data-delete-url="/api/subscriptions/monitoring/${encodeURIComponent(item.id)}?token=${token}" data-delete-host="${escapeHtml(item.host || '')}">Удалить</button>` : ''}
                   </td>
                 </tr>
               `).join('');
@@ -1313,7 +1318,7 @@ def render_static_page(page_key: str) -> str:
           async function loadEvents(token) {
             eventsBox.innerHTML = '';
             try {
-              const resp = await fetch('/api/subscriptions/monitoring/events?token=' + token + '&limit=20');
+              const resp = await fetch('/api/subscriptions/monitoring/events?token=' + apiToken(token) + '&limit=20');
               const data = await resp.json();
               if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось загрузить события.');
               latestEventPayload = Array.isArray(data.items) ? data.items : [];
@@ -1464,12 +1469,12 @@ def render_static_page(page_key: str) -> str:
                       const diffUiLink = event.scan_id ? `<a href="/scan?job=${encodeURIComponent(event.scan_id)}#compare-section" target="_blank" rel="noopener">diff-view</a>` : '';
                       const diffJsonLink = event.scan_id ? `<a href="/api/report/${encodeURIComponent(event.scan_id)}/compare" target="_blank" rel="noopener">diff-json</a>` : '';
                       const badge = `<span class="sev-badge ${escapeHtml(sev)}">${escapeHtml((event.severity || 'info').toUpperCase())}</span>`;
-                      return `<li>${badge}<strong>${event.title || event.event_type || 'Событие'}</strong> · ${when} ${scanLink} ${diffUiLink} ${diffJsonLink}</li>`;
+                      return `<li>${badge}<strong>${escapeHtml(event.title || event.event_type || 'Событие')}</strong> · ${escapeHtml(when)} ${scanLink} ${diffUiLink} ${diffJsonLink}</li>`;
                     }).join('')
                   : '<li>Событий пока нет.</li>';
                 return `
                   <div class="monitor-event-block">
-                    <h3 style="margin:0 0 8px">${item.host}</h3>
+                    <h3 style="margin:0 0 8px">${escapeHtml(item.host || '—')}</h3>
                     <ul>${eventsHtml}</ul>
                   </div>
                 `;
@@ -1542,10 +1547,7 @@ def render_static_page(page_key: str) -> str:
               });
               const data = await resp.json();
               if (!resp.ok) throw new Error((data && data.detail) || 'Не удалось добавить домен.');
-              const confirmUrl = data.confirm_url || '';
-              msg.innerHTML = confirmUrl
-                ? ('Подписка создана. Подтверждение email: <a target="_blank" rel="noopener" href="' + confirmUrl + '">ссылка</a>')
-                : 'Подписка создана.';
+              msg.textContent = data.detail || 'Проверьте почту и подтвердите добавление домена.';
               if (addHostInput) addHostInput.value = '';
               await loadStatus();
             } catch (error) {
@@ -1605,6 +1607,7 @@ def render_static_page(page_key: str) -> str:
         header_back = ""
     elif page_key == "ssl-certificate-check":
         header_back = '<a class="back" href="/">Вернуться к проверке сертификата →</a>'
+    robots_meta = "noindex,nofollow" if page_key == "monitor-status" else "index,follow"
     return f"""<!doctype html>
 <html lang="ru">
 <head>
@@ -1612,7 +1615,7 @@ def render_static_page(page_key: str) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{escape(page["title"])} — TLS Audit</title>
   <meta name="description" content="{escape(page["description"])}">
-  <meta name="robots" content="index,follow">
+  <meta name="robots" content="{robots_meta}">
   <meta name="theme-color" content="#0f766e">
   <link rel="canonical" href="{escape(canonical)}">
   <meta property="og:type" content="article">
@@ -3036,8 +3039,7 @@ def render_frontend(stats=None) -> str:
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        const sentLabel = result.confirmation_sent ? 'Письмо отправлено.' : 'Письмо не отправлено (проверь SMTP).';
-        subMsg.innerHTML = 'Статус: ожидает подтверждения. ' + sentLabel + ' Подтвердить: <a target="_blank" rel="noopener" href="' + escapeHtml(result.confirm_url) + '">ссылка</a>. Ссылка управления появится после подтверждения.';
+        subMsg.textContent = result.detail || 'Проверьте почту и подтвердите подписку.';
       } catch (error) {
         subMsg.textContent = error.message || 'Не удалось создать подписку.';
       } finally {

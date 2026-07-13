@@ -6,18 +6,25 @@ from .jobs import job_store
 from .monitoring import monitoring_store
 from .queue import enqueue_scan_job
 from .settings import settings
+from .subscriptions import subscription_store
 from .target_guard import target_scan_guard
 from shared.tls_audit.monitoring_scheduler import schedule_due_scans
 from shared.tls_audit.monitoring_store import DEFAULT_SCAN_INTERVAL_SECONDS, MIN_SCAN_INTERVAL_SECONDS
 
 
 def cleanup_reports(retention_days: int, error_retention_days: int) -> dict[str, int]:
-    if not archive_store.enabled:
-        return {"deleted_done": 0, "deleted_error": 0}
-    return archive_store.cleanup(
-        retention_days=retention_days,
-        error_retention_days=error_retention_days,
+    result = {"deleted_done": 0, "deleted_error": 0}
+    if archive_store.enabled:
+        result.update(
+            archive_store.cleanup(
+                retention_days=retention_days,
+                error_retention_days=error_retention_days,
+            )
+        )
+    result["deleted_unconfirmed_subscriptions"] = subscription_store.cleanup_unconfirmed(
+        max_age_hours=48
     )
+    return result
 
 
 def report_stats(days: int) -> dict[str, object]:

@@ -17,19 +17,24 @@ def report_digest_payload(
     summary = summarize_report(job_id, report, scan)
     findings = list(report.get("findings") or [])
     severity_counts = Counter(str(item.get("severity") or "info").lower() for item in findings if isinstance(item, dict))
-    top_findings = []
+    top_findings_by_key: Dict[tuple[str, str], Dict[str, Any]] = {}
     for item in findings:
         if not isinstance(item, dict):
             continue
-        top_findings.append(
-            {
-                "code": item.get("code"),
-                "title": item.get("title"),
-                "severity": item.get("severity"),
-                "category": item.get("category"),
-                "grade_cap": item.get("grade_cap"),
-            }
-        )
+        key = (str(item.get("code") or ""), str(item.get("title") or ""))
+        existing = top_findings_by_key.get(key)
+        if existing:
+            existing["count"] += 1
+            continue
+        top_findings_by_key[key] = {
+            "code": item.get("code"),
+            "title": item.get("title"),
+            "severity": item.get("severity"),
+            "category": item.get("category"),
+            "grade_cap": item.get("grade_cap"),
+            "count": 1,
+        }
+    top_findings = list(top_findings_by_key.values())
     recommendations = list(report.get("recommendations") or [])
     cert = dict(report.get("certificate") or {})
     hsts = dict(report.get("hsts") or {})

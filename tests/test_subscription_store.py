@@ -75,6 +75,25 @@ class SubscriptionStoreTests(unittest.TestCase):
         self.assertIsNotNone(second.ownership_verified_at)
         self.assertEqual(second.ownership_method, "trusted_reuse")
 
+    def test_confirmation_link_expires(self) -> None:
+        store = InMemorySubscriptionStore()
+        sub = store.upsert_pending("one.example", 443, "user@example.ru")
+        sub.updated_at = utcnow() - timedelta(hours=25)
+
+        self.assertIsNone(store.confirm(sub.token, max_age_seconds=86400))
+
+    def test_cleanup_removes_only_stale_unconfirmed_subscriptions(self) -> None:
+        store = InMemorySubscriptionStore()
+        stale = store.upsert_pending("old.example", 443, "user@example.ru")
+        stale.updated_at = utcnow() - timedelta(hours=49)
+        active = store.upsert_pending("active.example", 443, "user@example.ru")
+        active.confirmed = True
+        active.updated_at = utcnow() - timedelta(hours=49)
+
+        self.assertEqual(store.cleanup_unconfirmed(max_age_hours=48), 1)
+        self.assertIsNone(store.get_by_id(stale.id))
+        self.assertIsNotNone(store.get_by_id(active.id))
+
     def test_next_weekly_report_at_pins_to_monday_five_moscow(self) -> None:
         reference = datetime(2026, 6, 4, 12, 0, tzinfo=timezone.utc)  # Thursday
         scheduled = next_weekly_report_at(reference)

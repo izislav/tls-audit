@@ -1,10 +1,12 @@
+import http.client
 import logging
 import secrets
+import socket
+import ssl
 import subprocess
+import time
 from datetime import datetime, timezone
 from typing import Dict, List
-from urllib import error as urllib_error
-from urllib import request as urllib_request
 
 try:
     from fastapi import FastAPI, Header, HTTPException, Request
@@ -33,7 +35,7 @@ from .frontend import STATIC_PAGES, page_lastmod_iso, render_frontend, render_st
 from .jobs import job_store
 from .monitoring import monitoring_store
 from .queue import enqueue_scan_job, queue_depth
-from .rate_limit import rate_limiter
+from .rate_limit import email_rate_limiter, monitoring_rate_limiter, rate_limiter
 from .settings import settings
 from .subscriptions import subscription_store
 from .target_guard import target_scan_guard
@@ -53,22 +55,25 @@ logger = logging.getLogger("tls_audit.api")
 
 
 def frontend_stats() -> Dict[str, object]:
-    scan_stats = archive_store.stats(days=3650) if archive_store.enabled else {"total_scans": 0}
+    total_scans = archive_store.lifetime_scan_count() if archive_store.enabled else 0
     monitored_domains = (
         subscription_store.active_confirmed_count()
         if getattr(subscription_store, "enabled", False)
         else 0
     )
     return {
-        "total_scans": scan_stats.get("total_scans", 0),
+        "total_scans": total_scans,
         "monitored_domains": monitored_domains,
     }
 
 
 app = FastAPI(
     title="TLS Audit API",
-    version="0.1.0",
+    version="0.2.1",
     description="Русскоязычный API для проверки HTTPS/TLS-конфигурации сайтов.",
+    docs_url=None if settings.production else "/docs",
+    redoc_url=None if settings.production else "/redoc",
+    openapi_url=None if settings.production else "/openapi.json",
 )
 
 
@@ -102,10 +107,6 @@ class ProCheckoutRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=254)
 
 
-class ProActivateDemoRequest(BaseModel):
-    email: str = Field(..., min_length=5, max_length=254)
-
-
 class OwnershipChallengeRequest(BaseModel):
     method: str = Field(default="dns_txt", min_length=3, max_length=32)
 
@@ -121,6 +122,7 @@ def monitor_token_secret() -> str:
         redis_url=settings.redis_url,
         public_base_url=settings.public_base_url,
         contact_email=settings.contact_email,
+        require_explicit=settings.production,
     )
 
 
@@ -129,7 +131,11 @@ def create_monitor_owner_token(email: str) -> str:
 
 
 def email_from_monitor_owner_token(token: str) -> str | None:
-    return parse_owner_token(token, monitor_token_secret())
+    return parse_owner_token(
+        token,
+        monitor_token_secret(),
+        max_age_seconds=settings.monitoring_token_ttl_seconds,
+    )
 
 
 def require_monitor_owner_token(token: str) -> str:
@@ -150,6 +156,35 @@ def require_subscription_owner(subscription_id: int, token: str):
     if sub.email != normalized:
         raise HTTPException(status_code=403, detail="Недостаточно прав для этой подписки.")
     return sub
+
+
+def disable_orphaned_subscription_target(host: str, port: int) -> None:
+    if subscription_store.active_for_target(host, port):
+        return
+    if not getattr(monitoring_store, "enabled", False):
+        return
+    for domain in monitoring_store.list_domains(limit=1000):
+        if domain.host != host or int(domain.port) != int(port):
+            continue
+        if str(domain.notes or "").startswith("subscription:"):
+            monitoring_store.update_domain(domain.id, enabled=False)
+
+
+def enforce_endpoint_rate_limit(limiter, key: str) -> None:
+    decision = limiter.check(key)
+    if decision.allowed:
+        return
+    raise admission_error(
+        429,
+        "Слишком много запросов. Попробуйте повторить позже.",
+        decision,
+    )
+
+
+def enforce_email_rate_limits(action: str, request: Request, email: str) -> None:
+    ip = request_ip(request)
+    enforce_endpoint_rate_limit(email_rate_limiter, f"{action}:ip:{ip}")
+    enforce_endpoint_rate_limit(email_rate_limiter, f"{action}:email:{email}")
 
 
 def send_monitor_magic_link_email(email: str, manage_url: str, subscriptions_count: int) -> bool:
@@ -204,14 +239,45 @@ def ownership_http_url(host: str) -> str:
     return f"https://{host}/.well-known/tlsaudit-verification.txt"
 
 
+class PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, host: str, address: str, timeout: int) -> None:
+        super().__init__(host=host, port=443, timeout=timeout, context=ssl.create_default_context())
+        self.address = address
+
+    def connect(self) -> None:
+        raw_socket = socket.create_connection((self.address, self.port), timeout=self.timeout)
+        self.sock = self._context.wrap_socket(raw_socket, server_hostname=self.host)
+
+
 def verify_http_file(host: str, token: str, timeout: int = 8) -> tuple[bool, str]:
     url = ownership_http_url(host)
     try:
-        with urllib_request.urlopen(url, timeout=timeout) as response:
+        target = validate_target(host, 443, resolve=True)
+    except ValueError as exc:
+        return False, f"Проверка адреса отклонена: {exc}"
+
+    last_error = ""
+    for address in target.addresses:
+        connection = PinnedHTTPSConnection(target.host, address, timeout)
+        try:
+            connection.request(
+                "GET",
+                "/.well-known/tlsaudit-verification.txt",
+                headers={"Host": target.host, "User-Agent": "TLS-Audit-Ownership/0.2.1"},
+            )
+            response = connection.getresponse()
+            if response.status != 200:
+                last_error = f"HTTP {response.status}"
+                continue
             body = response.read(4096).decode("utf-8", errors="replace")
-    except urllib_error.URLError as exc:
-        return False, f"Не удалось получить {url}: {exc}"
-    return (token in body, f"Проверен {url}")
+            return (secrets.compare_digest(body.strip(), token), f"Проверен {url}")
+        except (OSError, ssl.SSLError, http.client.HTTPException) as exc:
+            last_error = str(exc)
+        finally:
+            connection.close()
+    if last_error:
+        return False, f"Не удалось получить {url}: {last_error}"
+    return False, f"Не удалось получить {url}."
 
 
 def parse_dig_txt_output(output: str) -> list[str]:
@@ -259,12 +325,53 @@ def require_monitoring_admin_token(
         raise HTTPException(status_code=404, detail="Not Found")
 
 
+@app.get("/health/live")
+def health_live() -> Dict[str, str]:
+    return {"status": "ok"}
+
+
 @app.get("/health")
-def health() -> Dict[str, str]:
-    return {
-        "status": "ok",
-        "database": "enabled" if archive_store.enabled else "disabled",
-    }
+@app.get("/health/ready")
+def health_ready(response: Response) -> Dict[str, object]:
+    checks: Dict[str, str] = {}
+    ready = True
+    if archive_store.enabled:
+        try:
+            with archive_store.connect() as conn:
+                conn.execute("SELECT 1")
+            checks["database"] = "ok"
+        except Exception:  # noqa: BLE001 - health endpoint reports dependency state.
+            checks["database"] = "error"
+            ready = False
+    else:
+        checks["database"] = "disabled"
+
+    if hasattr(job_store, "client"):
+        try:
+            client = job_store.client
+            client.ping()
+            checks["redis"] = "ok"
+            now = time.time()
+            worker_heartbeat = client.get("tls-audit:worker:heartbeat")
+            scheduler_heartbeat = client.get("tls-audit:scheduler:heartbeat")
+            worker_ok = bool(worker_heartbeat and now - float(worker_heartbeat) < 45)
+            scheduler_ok = bool(scheduler_heartbeat and now - float(scheduler_heartbeat) < 1200)
+            checks["worker"] = "ok" if worker_ok else "stale"
+            checks["scheduler"] = "ok" if scheduler_ok else "stale"
+            ready = ready and worker_ok and scheduler_ok
+        except Exception:  # noqa: BLE001 - health endpoint reports dependency state.
+            checks["redis"] = "error"
+            checks["worker"] = "unknown"
+            checks["scheduler"] = "unknown"
+            ready = False
+    else:
+        checks["redis"] = "disabled"
+        checks["worker"] = "local"
+        checks["scheduler"] = "local"
+
+    if not ready:
+        response.status_code = 503
+    return {"status": "ok" if ready else "degraded", "checks": checks}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -388,10 +495,11 @@ def monitor_status_page() -> str:
 
 
 @app.post("/api/billing/pro/checkout")
-def create_pro_checkout(payload: ProCheckoutRequest) -> Dict[str, object]:
+def create_pro_checkout(payload: ProCheckoutRequest, request: Request) -> Dict[str, object]:
     email = payload.email.strip().lower()
     if "@" not in email or email.startswith("@") or email.endswith("@"):
         raise HTTPException(status_code=400, detail="Укажите корректный email.")
+    enforce_email_rate_limits("checkout", request, email)
     checkout_id = f"pro_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
     checkout_url = f"{settings.public_base_url}/"
     billing_store.create_checkout(email, checkout_id)
@@ -406,35 +514,6 @@ def create_pro_checkout(payload: ProCheckoutRequest) -> Dict[str, object]:
     }
 
 
-@app.post("/api/billing/pro/activate-demo")
-def activate_pro_demo(payload: ProActivateDemoRequest) -> Dict[str, object]:
-    email = payload.email.strip().lower()
-    if "@" not in email or email.startswith("@") or email.endswith("@"):
-        raise HTTPException(status_code=400, detail="Укажите корректный email.")
-    account = billing_store.activate_pro(email)
-    return {
-        "status": account.status,
-        "plan": "pro",
-        "email": account.email,
-        "domain_limit": account.domain_limit,
-    }
-
-
-@app.get("/api/billing/pro/status")
-def get_pro_status(email: str) -> Dict[str, object]:
-    normalized = email.strip().lower()
-    account = billing_store.get_by_email(normalized)
-    if not account:
-        return {"email": normalized, "plan": "free", "status": "inactive", "domain_limit": 1}
-    return {
-        "email": account.email,
-        "plan": "pro" if account.plan == "support" else account.plan,
-        "status": account.status,
-        "domain_limit": account.domain_limit,
-        "checkout_id": account.checkout_id,
-    }
-
-
 @app.get("/robots.txt", response_class=PlainTextResponse)
 def robots_txt() -> str:
     return "\n".join(
@@ -444,6 +523,7 @@ def robots_txt() -> str:
             "Disallow: /api/",
             "Disallow: /scan",
             "Disallow: /health",
+            "Disallow: /monitor-status",
             f"Sitemap: {settings.public_base_url}/sitemap.xml",
             "",
         ]
@@ -463,7 +543,14 @@ def security_txt_root() -> str:
 @app.get("/sitemap.xml")
 def sitemap_xml() -> Response:
     today = datetime.now(timezone.utc).date().isoformat()
-    urls = [("/", "1.0", today), *[(page["path"], "0.3", page_lastmod_iso(page)) for page in STATIC_PAGES.values()]]
+    urls = [
+        ("/", "1.0", today),
+        *[
+            (page["path"], "0.3", page_lastmod_iso(page))
+            for key, page in STATIC_PAGES.items()
+            if key != "monitor-status"
+        ],
+    ]
     url_items = "\n".join(
         f"""  <url>
     <loc>{settings.public_base_url}{path}</loc>
@@ -891,14 +978,20 @@ def monitor_scan_now(
 
 
 @app.post("/api/subscriptions/monitoring")
-def create_monitor_subscription(payload: SubscribeRequest) -> Dict[str, object]:
-    try:
-        target = validate_target(payload.host, payload.port, resolve=False)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+def create_monitor_subscription(payload: SubscribeRequest, request: Request) -> Dict[str, object]:
     email = payload.email.strip().lower()
     if "@" not in email or email.startswith("@") or email.endswith("@"):
         raise HTTPException(status_code=400, detail="Укажите корректный email.")
+    enforce_endpoint_rate_limit(
+        monitoring_rate_limiter,
+        f"subscribe:ip:{request_ip(request)}",
+    )
+    enforce_endpoint_rate_limit(monitoring_rate_limiter, f"subscribe:email:{email}")
+    enforce_email_rate_limits("subscription-confirmation", request, email)
+    try:
+        target = validate_target(payload.host, payload.port, resolve=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     plan = payload.plan.strip().lower()
     if plan == "pro":
         plan = "support"
@@ -930,7 +1023,7 @@ def create_monitor_subscription(payload: SubscribeRequest) -> Dict[str, object]:
     )
     confirm_url = f"{settings.public_base_url}/api/subscriptions/monitoring/confirm?token={sub.token}"
     unsubscribe_url = f"{settings.public_base_url}/api/subscriptions/monitoring/unsubscribe?token={sub.token}"
-    confirmation_sent = send_confirmation_email(
+    send_confirmation_email(
         email=sub.email,
         host=sub.host,
         plan=sub.plan,
@@ -939,15 +1032,10 @@ def create_monitor_subscription(payload: SubscribeRequest) -> Dict[str, object]:
     )
     return {
         "status": "pending_confirmation",
-        "subscription_id": sub.id,
-        "host": sub.host,
-        "port": sub.port,
-        "email": sub.email,
-        "plan": sub.plan,
-        "ownership_reused": bool(sub.plan == "support" and sub.ownership_verified_at is not None),
-        "confirm_url": confirm_url,
-        "unsubscribe_url": unsubscribe_url,
-        "confirmation_sent": confirmation_sent,
+        "detail": (
+            "Если адрес указан верно, письмо с подтверждением уже отправлено. "
+            "Откройте ссылку из письма, чтобы включить мониторинг."
+        ),
     }
 
 
@@ -986,6 +1074,7 @@ def delete_monitor_subscription(subscription_id: int, token: str) -> Dict[str, o
     disabled = subscription_store.disable_by_id(sub.id)
     if not disabled:
         raise HTTPException(status_code=404, detail="Подписка не найдена.")
+    disable_orphaned_subscription_target(disabled.host, disabled.port)
     return {
         "status": "disabled",
         "subscription_id": disabled.id,
@@ -1069,7 +1158,10 @@ def monitoring_digest_json(token: str, limit: int = 20, events_limit: int = 20) 
 
 @app.get("/api/subscriptions/monitoring/confirm", response_class=HTMLResponse)
 def confirm_monitor_subscription(token: str) -> HTMLResponse:
-    sub = subscription_store.confirm(token)
+    sub = subscription_store.confirm(
+        token,
+        max_age_seconds=settings.monitoring_token_ttl_seconds,
+    )
     if not sub:
         body = """<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1126,6 +1218,7 @@ def unsubscribe_monitor_subscription(token: str) -> HTMLResponse:
 <p><a style="color:#0f766e" href="/">Вернуться на главную</a></p>
 </div></div></body></html>"""
         return HTMLResponse(content=body, status_code=404)
+    disable_orphaned_subscription_target(sub.host, sub.port)
     body = f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Подписка отключена</title></head>
@@ -1160,9 +1253,14 @@ def run_monitor_subscription_now(subscription_id: int, token: str) -> Dict[str, 
 def begin_subscription_ownership_challenge(
     subscription_id: int,
     payload: OwnershipChallengeRequest,
+    request: Request,
     token: str,
 ) -> Dict[str, object]:
     sub = require_subscription_owner(subscription_id, token)
+    enforce_endpoint_rate_limit(
+        monitoring_rate_limiter,
+        f"ownership-challenge:{request_ip(request)}:{sub.id}",
+    )
     method = payload.method.strip().lower()
     if method not in {"dns_txt", "http_file"}:
         raise HTTPException(status_code=400, detail="Поддерживаются только dns_txt и http_file.")
@@ -1205,22 +1303,19 @@ def begin_subscription_ownership_challenge(
 
 
 @app.post("/api/subscriptions/monitoring/magic-link")
-def create_monitor_magic_link(payload: MagicLinkRequest) -> Dict[str, object]:
+def create_monitor_magic_link(payload: MagicLinkRequest, request: Request) -> Dict[str, object]:
     email = payload.email.strip().lower()
     if "@" not in email or email.startswith("@") or email.endswith("@"):
         raise HTTPException(status_code=400, detail="Укажите корректный email.")
 
+    enforce_email_rate_limits("magic-link", request, email)
+
     token = create_monitor_owner_token(email)
     manage_url = f"{settings.public_base_url}/monitor-status?token={token}"
     subscriptions = subscription_store.list_by_email(email, limit=100)
-    sent = send_monitor_magic_link_email(email, manage_url, len(subscriptions))
-    if not sent:
-        return {
-            "status": "skipped",
-            "detail": "Ссылка не отправлена: SMTP не настроен или письмо заблокировано.",
-        }
+    send_monitor_magic_link_email(email, manage_url, len(subscriptions))
     return {
-        "status": "sent",
+        "status": "accepted",
         "detail": "Если email существует, мы отправили ссылку для входа в управление подписками.",
     }
 
@@ -1239,8 +1334,16 @@ def get_subscription_ownership_status(subscription_id: int, token: str) -> Dict[
 
 
 @app.post("/api/subscriptions/monitoring/{subscription_id}/ownership/verify")
-def verify_subscription_ownership(subscription_id: int, token: str) -> Dict[str, object]:
+def verify_subscription_ownership(
+    subscription_id: int,
+    request: Request,
+    token: str,
+) -> Dict[str, object]:
     sub = require_subscription_owner(subscription_id, token)
+    enforce_endpoint_rate_limit(
+        monitoring_rate_limiter,
+        f"ownership-verify:{request_ip(request)}:{sub.id}",
+    )
     if sub.plan != "support":
         return {
             "subscription_id": sub.id,

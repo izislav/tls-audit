@@ -74,6 +74,29 @@ def open_connection(host: str, port: int, timeout: float) -> socket.socket:
     return retry_network(lambda: socket.create_connection((host, port), timeout=timeout))
 
 
+class PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(
+        self,
+        host: str,
+        address: str,
+        port: int,
+        timeout: float,
+        context: ssl.SSLContext,
+    ) -> None:
+        super().__init__(host=host, port=port, timeout=timeout, context=context)
+        self.address = address
+
+    def connect(self) -> None:
+        raw_socket = socket.create_connection((self.address, self.port), timeout=self.timeout)
+        self.sock = self._context.wrap_socket(raw_socket, server_hostname=self.host)
+
+
+def connect_target(address: str, port: int) -> str:
+    if ":" in address:
+        return f"[{address}]:{port}"
+    return f"{address}:{port}"
+
+
 def parse_target(raw_target: str) -> Tuple[str, int]:
     raw_target = raw_target.strip()
     if not raw_target or CONTROL_CHARS.search(raw_target):
@@ -148,6 +171,7 @@ def scan_host(
     allow_private: bool = False,
     progress_callback: Optional[ProgressCallback] = None,
     max_seconds: float = DEFAULT_SCAN_MAX_SECONDS,
+    expected_addresses: Optional[Iterable[str]] = None,
 ) -> ScanResult:
     started_at = time.monotonic()
     deadline = started_at + max_seconds
@@ -167,9 +191,13 @@ def scan_host(
     ensure_deadline()
     progress(8, "dns", "Разрешаем DNS и проверяем, что адрес публичный")
     addresses = resolve_addresses(host, port, allow_private=allow_private)
+    expected = {str(ipaddress.ip_address(value)) for value in (expected_addresses or [])}
+    if expected and expected.isdisjoint(addresses):
+        raise ValueError("DNS changed after the scan was queued; refusing to continue.")
+    connection_host = next((address for address in addresses if not expected or address in expected), addresses[0])
     ensure_deadline()
     progress(18, "certificate", "Получаем и анализируем сертификат")
-    certificate = fetch_certificate_info(host, port, timeout)
+    certificate = fetch_certificate_info(host, port, timeout, connection_host=connection_host)
     ensure_deadline()
 
     protocols = []
@@ -179,7 +207,7 @@ def scan_host(
             "tls_versions",
             f"Проверяем поддержку {name}",
         )
-        protocols.append(check_protocol(host, port, name, version, timeout))
+        protocols.append(check_protocol(host, port, name, version, timeout, connection_host=connection_host))
         ensure_deadline()
 
     cipher_probes = []
@@ -189,11 +217,13 @@ def scan_host(
             "cipher_suites",
             f"Проверяем слабый cipher suite: {cipher_name}",
         )
-        cipher_probes.append(check_cipher(host, port, cipher_name, issue, timeout))
+        cipher_probes.append(
+            check_cipher(host, port, cipher_name, issue, timeout, connection_host=connection_host)
+        )
         ensure_deadline()
 
     progress(90, "headers", "Получаем HTTP security headers")
-    headers = fetch_headers(host, port, timeout)
+    headers = fetch_headers(host, port, timeout, connection_host=connection_host)
     ensure_deadline()
     progress(96, "grading", "Считаем оценку и формируем рекомендации")
     findings, grade, score = evaluate(certificate, protocols, cipher_probes, headers)
@@ -215,13 +245,19 @@ def scan_host(
     )
 
 
-def fetch_certificate_info(host: str, port: int, timeout: float) -> CertificateInfo:
+def fetch_certificate_info(
+    host: str,
+    port: int,
+    timeout: float,
+    connection_host: Optional[str] = None,
+) -> CertificateInfo:
     cert = CertificateInfo()
     validated_peer = None
+    target = connection_host or host
 
     try:
         context = ssl.create_default_context()
-        with open_connection(host, port, timeout) as sock:
+        with open_connection(target, port, timeout) as sock:
             with context.wrap_socket(sock, server_hostname=host) as tls:
                 validated_peer = tls.getpeercert()
                 cert.trusted = True
@@ -236,13 +272,13 @@ def fetch_certificate_info(host: str, port: int, timeout: float) -> CertificateI
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
-            with open_connection(host, port, timeout) as sock:
+            with open_connection(target, port, timeout) as sock:
                 with context.wrap_socket(sock, server_hostname=host) as tls:
                     apply_peer_cert_dict(cert, tls.getpeercert())
         except Exception:
             pass
 
-    chain = fetch_pem_chain(host, port, timeout)
+    chain = fetch_pem_chain(host, port, timeout, connection_host=target)
     cert.chain_length = len(chain)
     if chain:
         details = inspect_leaf_certificate(chain[0], timeout)
@@ -300,12 +336,18 @@ def extract_common_names(value: object) -> List[str]:
     return names
 
 
-def fetch_pem_chain(host: str, port: int, timeout: float) -> List[str]:
+def fetch_pem_chain(
+    host: str,
+    port: int,
+    timeout: float,
+    connection_host: Optional[str] = None,
+) -> List[str]:
+    target = connection_host or host
     command = [
         "openssl",
         "s_client",
         "-connect",
-        f"{host}:{port}",
+        connect_target(target, port),
         "-servername",
         host,
         "-showcerts",
@@ -438,6 +480,7 @@ def check_protocol(
     name: str,
     version: ssl.TLSVersion,
     timeout: float,
+    connection_host: Optional[str] = None,
 ) -> ProtocolCheck:
     try:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -450,7 +493,7 @@ def check_protocol(
         except ssl.SSLError:
             pass
 
-        with open_connection(host, port, timeout) as sock:
+        with open_connection(connection_host or host, port, timeout) as sock:
             with context.wrap_socket(sock, server_hostname=host) as tls:
                 cipher = tls.cipher()
                 cipher_name = cipher[0] if cipher else None
@@ -466,10 +509,24 @@ def check_protocol(
         return ProtocolCheck(version=name, supported=False, error=short_error(exc))
 
 
-def check_weak_ciphers(host: str, port: int, timeout: float) -> List[CipherProbe]:
+def check_weak_ciphers(
+    host: str,
+    port: int,
+    timeout: float,
+    connection_host: Optional[str] = None,
+) -> List[CipherProbe]:
     probes: List[CipherProbe] = []
     for cipher_name, issue in WEAK_CIPHER_PROBES:
-        probes.append(check_cipher(host, port, cipher_name, issue, timeout))
+        probes.append(
+            check_cipher(
+                host,
+                port,
+                cipher_name,
+                issue,
+                timeout,
+                connection_host=connection_host,
+            )
+        )
     return probes
 
 
@@ -479,6 +536,7 @@ def check_cipher(
     cipher_name: str,
     issue: str,
     timeout: float,
+    connection_host: Optional[str] = None,
 ) -> CipherProbe:
     try:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -488,7 +546,7 @@ def check_cipher(
         context.maximum_version = ssl.TLSVersion.TLSv1_2
         context.set_ciphers(f"{cipher_name}:@SECLEVEL=0")
 
-        with open_connection(host, port, timeout) as sock:
+        with open_connection(connection_host or host, port, timeout) as sock:
             with context.wrap_socket(sock, server_hostname=host) as tls:
                 negotiated = tls.cipher()
                 accepted = bool(negotiated and negotiated[0] == cipher_name)
@@ -509,10 +567,15 @@ def check_cipher(
         )
 
 
-def fetch_headers(host: str, port: int, timeout: float) -> HeaderInfo:
+def fetch_headers(
+    host: str,
+    port: int,
+    timeout: float,
+    connection_host: Optional[str] = None,
+) -> HeaderInfo:
     last_error = None
     for attempt in range(RETRY_ATTEMPTS):
-        result = fetch_headers_once(host, port, timeout)
+        result = fetch_headers_once(host, port, timeout, connection_host=connection_host)
         if not result.error:
             return result
         last_error = result.error
@@ -521,11 +584,22 @@ def fetch_headers(host: str, port: int, timeout: float) -> HeaderInfo:
     return HeaderInfo(error=last_error)
 
 
-def fetch_headers_once(host: str, port: int, timeout: float) -> HeaderInfo:
+def fetch_headers_once(
+    host: str,
+    port: int,
+    timeout: float,
+    connection_host: Optional[str] = None,
+) -> HeaderInfo:
     context = ssl.create_default_context()
     conn = None
     try:
-        conn = http.client.HTTPSConnection(host, port, timeout=timeout, context=context)
+        conn = PinnedHTTPSConnection(
+            host,
+            connection_host or host,
+            port,
+            timeout,
+            context,
+        )
         conn.request(
             "HEAD",
             "/",
@@ -534,7 +608,13 @@ def fetch_headers_once(host: str, port: int, timeout: float) -> HeaderInfo:
         response = conn.getresponse()
         if response.status in {405, 501}:
             conn.close()
-            conn = http.client.HTTPSConnection(host, port, timeout=timeout, context=context)
+            conn = PinnedHTTPSConnection(
+                host,
+                connection_host or host,
+                port,
+                timeout,
+                context,
+            )
             conn.request(
                 "GET",
                 "/",

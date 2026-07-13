@@ -5,15 +5,27 @@ services:
       dockerfile: deploy/Dockerfile.api
     restart: unless-stopped
     init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     dns:
       - 1.1.1.1
       - 8.8.8.8
     environment:
+      APP_ENV: ${APP_ENV:-production}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://tlsaudit.ru}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       DATABASE_URL: ${DATABASE_URL:-postgresql://tls_audit:tls_audit@postgres:5432/tls_audit}
       MAX_SCAN_SECONDS: ${MAX_SCAN_SECONDS:-45}
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-20}
+      MONITORING_RATE_LIMIT: ${MONITORING_RATE_LIMIT:-30}
+      MONITORING_RATE_WINDOW_SECONDS: ${MONITORING_RATE_WINDOW_SECONDS:-600}
+      EMAIL_RATE_LIMIT: ${EMAIL_RATE_LIMIT:-5}
+      EMAIL_RATE_WINDOW_SECONDS: ${EMAIL_RATE_WINDOW_SECONDS:-900}
       CAPTCHA_AFTER_PER_MINUTE: ${CAPTCHA_AFTER_PER_MINUTE:-15}
       TARGET_COOLDOWN_SECONDS: ${TARGET_COOLDOWN_SECONDS:-30}
       ACTIVE_SCAN_TTL_SECONDS: ${ACTIVE_SCAN_TTL_SECONDS:-900}
@@ -31,16 +43,17 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       MONITORING_TOKEN_SECRET: ${MONITORING_TOKEN_SECRET:-}
+      MONITORING_TOKEN_TTL_SECONDS: ${MONITORING_TOKEN_TTL_SECONDS:-86400}
       MONITORING_ADMIN_TOKEN: ${MONITORING_ADMIN_TOKEN:-}
     ports:
-      - "${API_BIND_HOST:-0.0.0.0}:8000:8000"
+      - "${API_BIND_HOST:-127.0.0.1}:8000:8000"
     depends_on:
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -52,10 +65,18 @@ services:
       dockerfile: deploy/Dockerfile.worker
     restart: unless-stopped
     init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     dns:
       - 1.1.1.1
       - 8.8.8.8
     environment:
+      APP_ENV: ${APP_ENV:-production}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       DATABASE_URL: ${DATABASE_URL:-postgresql://tls_audit:tls_audit@postgres:5432/tls_audit}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://tlsaudit.ru}
@@ -69,13 +90,14 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       MONITORING_TOKEN_SECRET: ${MONITORING_TOKEN_SECRET:-}
+      MONITORING_TOKEN_TTL_SECONDS: ${MONITORING_TOKEN_TTL_SECONDS:-86400}
     depends_on:
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import os, redis; redis.from_url(os.environ['REDIS_URL']).ping()"]
+      test: ["CMD", "python", "-c", "import os,time,redis; c=redis.from_url(os.environ['REDIS_URL'],decode_responses=True); v=c.get('tls-audit:worker:heartbeat'); assert v and time.time()-float(v)<45"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -88,10 +110,18 @@ services:
     command: ["python", "-m", "services.scheduler.scheduler"]
     restart: unless-stopped
     init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     dns:
       - 1.1.1.1
       - 8.8.8.8
     environment:
+      APP_ENV: ${APP_ENV:-production}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       DATABASE_URL: ${DATABASE_URL:-postgresql://tls_audit:tls_audit@postgres:5432/tls_audit}
       SCAN_QUEUE_NAME: ${SCAN_QUEUE_NAME:-tls-audit:scan-jobs}
@@ -104,11 +134,19 @@ services:
       SMTP_URL: ${SMTP_URL:-}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MONITORING_TOKEN_SECRET: ${MONITORING_TOKEN_SECRET:-}
+      MONITORING_TOKEN_TTL_SECONDS: ${MONITORING_TOKEN_TTL_SECONDS:-86400}
     depends_on:
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,time,redis; c=redis.from_url(os.environ['REDIS_URL'],decode_responses=True); v=c.get('tls-audit:scheduler:heartbeat'); assert v and time.time()-float(v)<1200"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   redis:
     image: redis:7-alpine

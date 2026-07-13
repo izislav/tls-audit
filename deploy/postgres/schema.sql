@@ -20,6 +20,16 @@ CREATE INDEX IF NOT EXISTS scans_host_created_idx ON scans (host, created_at DES
 CREATE INDEX IF NOT EXISTS scans_status_created_idx ON scans (status, created_at DESC);
 CREATE INDEX IF NOT EXISTS scans_retention_idx ON scans (status, created_at);
 
+CREATE TABLE IF NOT EXISTS site_counters (
+    name TEXT PRIMARY KEY,
+    value BIGINT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO site_counters (name, value)
+SELECT 'scans_total', count(*) FROM scans
+ON CONFLICT (name) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS reports (
     scan_id TEXT PRIMARY KEY REFERENCES scans(id) ON DELETE CASCADE,
     report JSONB NOT NULL,
@@ -189,5 +199,11 @@ EXECUTE FUNCTION set_updated_at();
 DROP TRIGGER IF EXISTS billing_accounts_set_updated_at ON billing_accounts;
 CREATE TRIGGER billing_accounts_set_updated_at
 BEFORE UPDATE ON billing_accounts
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS site_counters_set_updated_at ON site_counters;
+CREATE TRIGGER site_counters_set_updated_at
+BEFORE UPDATE ON site_counters
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
