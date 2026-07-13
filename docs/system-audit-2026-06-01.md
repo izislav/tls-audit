@@ -190,10 +190,14 @@ Repo/Docker hygiene:
 
 ## 7) Remaining Risks
 
-1. Production working tree still contains old untracked `monitoring.py`, `worker.py`, and `scripts/` artifacts. They are not part of the current runtime image, but should be reviewed before deletion.
-2. Pending/unconfirmed subscriptions remain in DB. This is not a runtime issue, but cleanup policy is needed.
-3. Monitoring events are implemented, but production has not yet recorded real events; this should be verified with a controlled synthetic event test before calling alerting fully proven.
-4. `/var/log/journal` is not currently dangerous (`307 MB`), but should have an explicit retention cap.
+1. Resolved 2026-07-13: old untracked runtime artifacts were moved into the
+   pre-v0.2.1 backup and the production worktree is clean.
+2. Resolved 2026-07-13: unconfirmed subscriptions older than 48 hours are
+   removed by maintenance; three stale rows were removed during deployment.
+3. Resolved: event email delivery was verified with a controlled synthetic
+   critical event before the v0.2.1 maintenance release.
+4. Resolved 2026-07-13: journald is capped at 300 MB and 14 days; Docker logs
+   are capped at three 10 MB files per service.
 5. Payment/billing is still not connected; Pro currently works as functional/free support mode.
 
 ## 8) Development Plan From Current State
